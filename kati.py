@@ -100,7 +100,7 @@ class Application:
                 particle_area = round(particle_area, 4)
 
                 # reflect changes in gui
-                particle_size.update(value=f'5. Particle size is: {particle_area} mm2')
+                particle_size.update(value=f'3. Particle size is: {particle_area} mm2')
                 particle_bytes, location = self.scale_img_to_graph(particle_thresh, clean_graph)
                 clean_graph.erase()
                 clean_graph.draw_image(data=particle_bytes, location=location)
