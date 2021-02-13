@@ -30,6 +30,8 @@ class Application:
             elif event == '-FILENAME-':
                 orig_image = cv2.imread(values['-FILENAME-'], cv2.IMREAD_COLOR)
                 img_bytes, location = self.scale_img_to_graph(orig_image, orig_graph)
+                if orig_image_id:
+                    orig_graph.delete_figure(orig_image_id)
                 orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
             elif event == '-DONE-':
                 # get region of interest
