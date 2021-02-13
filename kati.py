@@ -8,7 +8,7 @@ class Application:
 
         sg.theme('BluePurple')
 
-        self.graph_size = (400, 400)
+        self.graph_size = (600, 400)
 
         layout = self.get_layout()
 
@@ -20,7 +20,7 @@ class Application:
         orig_image_id = None
         orig_image = None
         dragging = False
-        start_point = end_point = prior_rect = prior_clean_img = None
+        start_point = end_point = prior_rect = None
 
         while True:  # Event Loop
             event, values = window.read()
@@ -33,6 +33,8 @@ class Application:
                 orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
             elif event == '-DONE-':
                 # get region of interest
+                if not prior_rect:
+                    continue
                 roi, ys, xs = self.get_region_of_interest(orig_graph, prior_rect, orig_image)
                 # Blur image
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -86,16 +88,13 @@ class Application:
                 particle[ys[0]:ys[1], xs[0]:xs[1]] = 255
 
                 # apply threshold
-                #particle = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
-                # particle_blur = cv2.GaussianBlur(particle, (5, 5), 0)
-                #particle_blur = cv2.bilateralFilter(particle,d=5,sigmaColor=0,sigmaSpace=0)
-                #kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-                kernel = np.array([[0,-1,0], [-1,5,-1], [0,-1,0]])
+                kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
                 particle = cv2.filter2D(particle, -1, kernel)
                 particle_blur = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
                 particle_thresh = cv2.threshold(particle_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
                 num_particle_pixels = cv2.countNonZero(particle_thresh)
-                particle_thresh[ys[0]-2:ys[1]+2, xs[0]-2:xs[1]+2] = 0
+                particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
+
                 # calculate area
                 particle_area = (pixel_size_in_microns * pixel_size_in_microns * num_particle_pixels) / 1000000
                 particle_area = round(particle_area, 4)
@@ -147,7 +146,7 @@ class Application:
         resize = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
         img_bytes = cv2.imencode('.png', resize)[1].tobytes()
 
-        location = (x_offset, graph.get_size()[0] - y_offset)
+        location = (x_offset, graph.get_size()[1] - y_offset)
 
         return img_bytes, location
 
@@ -180,7 +179,8 @@ class Application:
         return [[sg.Text('1. Please select a photo:'),
                  sg.InputText(size=(50, 1), key='-FILENAME-', enable_events=True, readonly=True),
                  sg.FileBrowse()],
-                [sg.Text('2. Please highlight the text and scale with your mouse.'), sg.Button('Done', key='-DONE-')],
+                [sg.Text('2. Please highlight the text and scale with your mouse.'),
+                 sg.Button('Done', key='-DONE-')],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
                 [sg.InputText(default_text='3. Particle size is: ', key='-SIZE-', readonly=True)],
                 [sg.Text('4. Choose another image.')]
