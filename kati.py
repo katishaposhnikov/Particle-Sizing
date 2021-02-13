@@ -1,5 +1,6 @@
 import PySimpleGUI as sg
 import cv2
+import numpy as np
 
 
 class Application:
@@ -15,6 +16,7 @@ class Application:
         orig_graph = window['-ORIGINAL-']
         clean_graph = window['-CLEANED-']
 
+        orig_image_id = None
         orig_image = None
         dragging = False
         start_point = end_point = prior_rect = prior_clean_img = None
@@ -27,23 +29,48 @@ class Application:
             elif event == '-FILENAME-':
                 orig_image = cv2.imread(values['-FILENAME-'], cv2.IMREAD_COLOR)
                 img_bytes, location = self.scale_img_to_graph(orig_image, orig_graph)
-                orig_graph.draw_image(data=img_bytes, location=location)
+                orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
             elif event == '-DONE-':
                 # get region of interest
-                roi = self.get_region_of_interest(orig_graph, prior_rect, orig_image)
-                roi_bytes, location = self.scale_img_to_graph(roi, clean_graph)
-                if prior_clean_img:
-                    clean_graph.delete_figure(prior_clean_img)
-                prior_clean_img = clean_graph.draw_image(data=roi_bytes, location=location)
+                roi,ys,xs = self.get_region_of_interest(orig_graph, prior_rect, orig_image)
                 # Blur image
-                # blur = cv2.threshold(roi, 127, 255, cv2.THRESH_BINARY_INV)[1]
-                # blur = cv2.GaussianBlur(blur,(5,5),0)
+                roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+                blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
+                thr = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
                 # get connected components
-                # num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(blur, connectivity=4)
+                num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(thr, connectivity=4)
                 # find the longest/widest one (assume that one is scale)
-                # lengths_and_width
-                # index = np.argmax(stats[])
+
+                # get the lengths and width of the connected components (0 is background so exclude it)
+                lengths_and_widths = np.stack((stats[1:, cv2.CC_STAT_WIDTH], stats[1:, cv2.CC_STAT_HEIGHT]))
+                largest_cc = (np.argmax(lengths_and_widths) % lengths_and_widths.shape[1]) + 1  # add 1 because we ignored background
                 # highlight it bright green on the left graph
+                label_hue = np.uint8(np.where(labels == largest_cc, 179, 0))
+                blank_ch = 255 * np.ones_like(label_hue)
+                labeled_img = cv2.merge([label_hue, blank_ch, blank_ch])
+
+                # Converting cvt to BGR
+                labeled_img = cv2.cvtColor(labeled_img, cv2.COLOR_HSV2BGR)
+                labeled_img[label_hue == 0] = 0
+
+                # Now create a mask of logo and create its inverse mask also
+                img2gray = cv2.cvtColor(labeled_img, cv2.COLOR_BGR2GRAY)
+                ret, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY)
+                mask_inv = cv2.bitwise_not(mask)
+
+                # Now black-out the area of logo in ROI
+                img1_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
+
+                # Take only region of logo from logo image.
+                img2_fg = cv2.bitwise_and(labeled_img, labeled_img, mask=mask)
+
+                # Put logo in ROI and modify the main image
+                dst = cv2.add(img1_bg, img2_fg)
+                orig_image[ys[0]:ys[1], xs[0]:xs[1]] = dst
+
+                img_bytes, location = self.scale_img_to_graph(orig_image, orig_graph)
+                orig_graph.delete_figure(orig_image_id)
+                orig_graph.draw_image(data=img_bytes, location=location)
                 # calculate real-life size of pixel
                 # remove highlighted area
                 # apply threshold
@@ -79,7 +106,7 @@ class Application:
         x_offset = int((graph_width - new_width) / 2)
         y_offset = int((graph_height - new_height) / 2)
 
-        return (scale, x_offset, y_offset)
+        return scale, x_offset, y_offset
 
     def scale_img_to_graph(self, img, graph):
         scale, x_offset, y_offset = self.get_scale_data(img, graph)
@@ -118,7 +145,7 @@ class Application:
         x1 = int(upper_left_image[0])
         x2 = int(lower_right_image[0])
 
-        return img[y1:y2, x1:x2]
+        return img[y1:y2, x1:x2], (y1, y2), (x1, x2)
 
     def get_layout(self):
         return [[sg.Text('1. Please select a photo:'),
