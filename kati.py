@@ -16,6 +16,7 @@ class Application:
         orig_graph = window['-ORIGINAL-']
         clean_graph = window['-CLEANED-']
         particle_size = window['-SIZE-']
+        algo_chooser = window['-ALGO-SELECTION-']
 
         orig_image_id = None
         orig_image = None
@@ -52,7 +53,7 @@ class Application:
                 largest_cc = (np.argmax(lengths_and_widths) % lengths_and_widths.shape[
                     1]) + 1  # add 1 because we ignored background
 
-                # highlight it bright green on the left graph
+                # highlight it bright red on the left graph
                 label_hue = np.uint8(np.where(labels == largest_cc, 179, 0))  # In HSV 179 is red
                 blank_ch = 255 * np.ones_like(label_hue)
                 labeled_img = cv2.merge([label_hue, blank_ch, blank_ch])
@@ -78,24 +79,28 @@ class Application:
                 new_img[ys[0]:ys[1], xs[0]:xs[1]] = dst
 
                 img_bytes, location = self.scale_img_to_graph(new_img, orig_graph)
-                orig_graph.delete_figure(orig_image_id)
+                orig_graph.erase()
                 orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
 
                 # calculate real-life size of pixel
                 scale_size = np.max(lengths_and_widths)
                 pixel_size_in_microns = 1000 / scale_size
 
-                # remove highlighted area
+                # calculate number of pixels in particle
                 particle = orig_image.copy()
-                particle[ys[0]:ys[1], xs[0]:xs[1]] = 255
 
-                # apply threshold
-                kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-                particle = cv2.filter2D(particle, -1, kernel)
-                particle_blur = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
-                particle_thresh = cv2.threshold(particle_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-                num_particle_pixels = cv2.countNonZero(particle_thresh)
-                particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
+                threshold_algo = algo_chooser.get()
+                # apply thresholding to particle image
+                if threshold_algo == 'Sharpen+Threshold':
+                    particle = self.sharpen_plus_threshold(particle)
+                elif threshold_algo == 'Color Threshold':
+                    particle = self.color_threshold(particle, labels)
+
+                # black-out the user selection rectangle so that it isn't counted in particle pixel area calculation
+                particle[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
+
+                # count number of non-zero (non-black) pixels which should only be the pixels of the particle
+                num_particle_pixels = cv2.countNonZero(particle)
 
                 # calculate area
                 particle_area = (pixel_size_in_microns * pixel_size_in_microns * num_particle_pixels) / 1000000
@@ -103,7 +108,7 @@ class Application:
 
                 # reflect changes in gui
                 particle_size.update(value=f'3. Particle size is: {particle_area} mm2')
-                particle_bytes, location = self.scale_img_to_graph(particle_thresh, clean_graph)
+                particle_bytes, location = self.scale_img_to_graph(particle, clean_graph)
                 clean_graph.erase()
                 clean_graph.draw_image(data=particle_bytes, location=location)
             elif event == '-ORIGINAL-':
@@ -183,9 +188,12 @@ class Application:
                  sg.FileBrowse()],
                 [sg.Text('2. Please highlight the text and scale with your mouse.'),
                  sg.Button('Done', key='-DONE-')],
+                [sg.Text('3. Select an algorithm for filtering the image.'),
+                 sg.Combo(values=['Sharpen+Threshold', 'Color Threshold'],default_value='Sharpen+Threshold',
+                          key='-ALGO-SELECTION-',readonly=True)],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
-                [sg.InputText(default_text='3. Particle size is: ', key='-SIZE-', readonly=True)],
-                [sg.Text('4. Choose another image.')]
+                [sg.InputText(default_text='4. Particle size is: ', key='-SIZE-', readonly=True)],
+                [sg.Text('5. Choose another image.')]
                 ]
 
     def create_original_image(self):
@@ -197,6 +205,22 @@ class Application:
         return sg.Graph(key='-CLEANED-', canvas_size=self.graph_size, graph_bottom_left=(0, 0),
                         graph_top_right=self.graph_size, background_color='lightblue',
                         border_width=1)
+
+    def sharpen_plus_threshold(self, particle):
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        particle = cv2.filter2D(particle, -1, kernel)
+        particle = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
+        return cv2.threshold(particle, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+
+    def color_threshold(self, particle,labels):
+        target = cv2.cvtColor(particle, cv2.COLOR_BGR2HSV)
+        # find a good hsv range for the background color
+        # filter it out
+
+        # or find a good hsv range for the particle
+        # filter it in and everything else out
+        return particle
+
 
 
 # start the app
