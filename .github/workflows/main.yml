@@ -20,10 +20,9 @@ jobs:
     - name: Build
       run: |
         pyinstaller --onefile --windowed --name "Particle Sizing" kati.py
-
-    - name: Upload the artifacts
-      uses: skx/github-action-publish-binaries@master
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
       with:
-        args: 'dist/Particle Sizing.exe'
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: "dist/Particle Sizing.exe"
+        tag: ${{ github.ref }
