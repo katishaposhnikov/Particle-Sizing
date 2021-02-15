@@ -35,13 +35,15 @@ class Application:
                 orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
             elif event == '-DONE-':
                 # get region of interest
-                if not prior_rect:
+                if prior_rect is None or orig_image is None:
                     continue
                 roi, ys, xs = self.get_region_of_interest(orig_graph, prior_rect, orig_image)
+
                 # Blur image
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
                 blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
-                thr = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+                thr = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 51, 20)
+
                 # get connected components
                 num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(thr, connectivity=4)
 
