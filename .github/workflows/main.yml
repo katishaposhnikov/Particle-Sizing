@@ -25,4 +25,4 @@ jobs:
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: "dist/Particle Sizing.exe"
-        tag: ${{ github.ref }
+        tag: ${{ github.ref }}
