@@ -29,33 +29,41 @@ class Application:
                 break
             elif event == '-FILENAME-':
                 orig_image = cv2.imread(values['-FILENAME-'], cv2.IMREAD_COLOR)
-                img_bytes, location = self.scale_img_to_graph(orig_image, orig_graph)
+                img_bytes, location = self.scale_img_to_graph(
+                    orig_image, orig_graph)
                 if orig_image_id:
                     orig_graph.delete_figure(orig_image_id)
-                orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
+                orig_image_id = orig_graph.draw_image(
+                    data=img_bytes, location=location)
             elif event == '-DONE-':
                 # get region of interest
                 if prior_rect is None or orig_image is None:
                     continue
-                roi, ys, xs = self.get_region_of_interest(orig_graph, prior_rect, orig_image)
+                roi, ys, xs = self.get_region_of_interest(
+                    orig_graph, prior_rect, orig_image)
 
                 # Blur image
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
                 blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
-                thr = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 51, 20)
+                thr = cv2.adaptiveThreshold(
+                    blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 51, 20)
 
                 # get connected components
-                num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(thr, connectivity=4)
+                num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(
+                    thr, connectivity=4)
 
                 # get the lengths and width of the connected components (0 is background so exclude it)
-                lengths_and_widths = np.stack((stats[1:, cv2.CC_STAT_WIDTH], stats[1:, cv2.CC_STAT_HEIGHT]))
+                lengths_and_widths = np.stack(
+                    (stats[1:, cv2.CC_STAT_WIDTH], stats[1:, cv2.CC_STAT_HEIGHT]))
 
                 # find the longest/widest one (assume that one is the image scale)
-                largest_cc = (np.argmax(lengths_and_widths) % lengths_and_widths.shape[
-                    1]) + 1  # add 1 because we ignored background
+                # add 1 because we ignored background
+                largest_cc = (np.argmax(lengths_and_widths) %
+                              lengths_and_widths.shape[1]) + 1
 
-                # highlight it bright green on the left graph
-                label_hue = np.uint8(np.where(labels == largest_cc, 179, 0))  # In HSV 179 is red
+                # highlight it bright red on the left graph
+                # In HSV 179 is red
+                label_hue = np.uint8(np.where(labels == largest_cc, 179, 0))
                 blank_ch = 255 * np.ones_like(label_hue)
                 labeled_img = cv2.merge([label_hue, blank_ch, blank_ch])
 
@@ -63,25 +71,27 @@ class Application:
                 labeled_img = cv2.cvtColor(labeled_img, cv2.COLOR_HSV2BGR)
                 labeled_img[label_hue == 0] = 0
 
-                # Now create a mask of logo and create its inverse mask also
+                # Now create a mask of scale and create its inverse mask also
                 img2gray = cv2.cvtColor(labeled_img, cv2.COLOR_BGR2GRAY)
                 ret, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY)
                 mask_inv = cv2.bitwise_not(mask)
 
-                # Now black-out the area of logo in ROI
+                # Now black-out the area of scale in ROI
                 img1_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
 
-                # Take only region of logo from logo image.
+                # Take only region of scale from scale image.
                 img2_fg = cv2.bitwise_and(labeled_img, labeled_img, mask=mask)
 
-                # Put logo in ROI and modify the main image
+                # Put outlined scale in ROI and modify the main image
                 dst = cv2.add(img1_bg, img2_fg)
                 new_img = orig_image.copy()
                 new_img[ys[0]:ys[1], xs[0]:xs[1]] = dst
 
-                img_bytes, location = self.scale_img_to_graph(new_img, orig_graph)
+                img_bytes, location = self.scale_img_to_graph(
+                    new_img, orig_graph)
                 orig_graph.delete_figure(orig_image_id)
-                orig_image_id = orig_graph.draw_image(data=img_bytes, location=location)
+                orig_image_id = orig_graph.draw_image(
+                    data=img_bytes, location=location)
 
                 # calculate real-life size of pixel
                 scale_size = np.max(lengths_and_widths)
@@ -95,17 +105,21 @@ class Application:
                 kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
                 particle = cv2.filter2D(particle, -1, kernel)
                 particle_blur = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
-                particle_thresh = cv2.threshold(particle_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+                particle_thresh = cv2.threshold(
+                    particle_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
                 num_particle_pixels = cv2.countNonZero(particle_thresh)
                 particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
 
                 # calculate area
-                particle_area = (pixel_size_in_microns * pixel_size_in_microns * num_particle_pixels) / 1000000
+                particle_area = (
+                    pixel_size_in_microns * pixel_size_in_microns * num_particle_pixels) / 1000000
                 particle_area = round(particle_area, 4)
 
                 # reflect changes in gui
-                particle_size.update(value=f'3. Particle size is: {particle_area} mm2')
-                particle_bytes, location = self.scale_img_to_graph(particle_thresh, clean_graph)
+                particle_size.update(
+                    value=f'3. Particle size is: {particle_area} mm2')
+                particle_bytes, location = self.scale_img_to_graph(
+                    particle_thresh, clean_graph)
                 clean_graph.erase()
                 clean_graph.draw_image(data=particle_bytes, location=location)
             elif event == '-ORIGINAL-':
@@ -118,7 +132,8 @@ class Application:
                 if prior_rect:
                     orig_graph.delete_figure(prior_rect)
                 if None not in (start_point, end_point):
-                    prior_rect = orig_graph.draw_rectangle(start_point, end_point, line_color='red')
+                    prior_rect = orig_graph.draw_rectangle(
+                        start_point, end_point, line_color='red')
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
                 start_point, end_point = None, None  # enable grabbing a new rect
                 dragging = False
@@ -147,7 +162,8 @@ class Application:
         new_height = int(old_height * scale)
         new_width = int(old_width * scale)
 
-        resize = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        resize = cv2.resize(img, (new_width, new_height),
+                            interpolation=cv2.INTER_AREA)
         img_bytes = cv2.imencode('.png', resize)[1].tobytes()
 
         location = (x_offset, graph.get_size()[1] - y_offset)
@@ -169,8 +185,10 @@ class Application:
     def get_region_of_interest(self, graph, rect_id, img):
         upper_left, lower_right = graph.get_bounding_box(rect_id)
 
-        upper_left_image = self.graph_coords_to_image_coords(upper_left, img=img, graph=graph)
-        lower_right_image = self.graph_coords_to_image_coords(lower_right, img=img, graph=graph)
+        upper_left_image = self.graph_coords_to_image_coords(
+            upper_left, img=img, graph=graph)
+        lower_right_image = self.graph_coords_to_image_coords(
+            lower_right, img=img, graph=graph)
 
         y1 = int(img.shape[0] - upper_left_image[1])
         y2 = int(img.shape[0] - lower_right_image[1])
@@ -181,12 +199,14 @@ class Application:
 
     def get_layout(self):
         return [[sg.Text('1. Please select a photo:'),
-                 sg.InputText(size=(50, 1), key='-FILENAME-', enable_events=True, readonly=True),
+                 sg.InputText(size=(50, 1), key='-FILENAME-',
+                              enable_events=True, readonly=True),
                  sg.FileBrowse()],
                 [sg.Text('2. Please highlight the text and scale with your mouse.'),
                  sg.Button('Done', key='-DONE-')],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
-                [sg.InputText(default_text='3. Particle size is: ', key='-SIZE-', readonly=True)],
+                [sg.InputText(default_text='3. Particle size is: ',
+                              key='-SIZE-', readonly=True)],
                 [sg.Text('4. Choose another image.')]
                 ]
 
