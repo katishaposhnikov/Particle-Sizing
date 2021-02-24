@@ -9,13 +9,18 @@ class Application:
         sg.theme('BluePurple')
 
         self.graph_size = (600, 400)
+        self.ORIGINAL_KEY = '-ORIGINAL-'
+        self.PROCESSED_KEY = '-PROCESSED-'
+        self.PARTICLE_SIZE_KEY = '-PARTICLE-SIZE-'
+        self.FILENAME_KEY = '-FILENAME-'
+        self.DONE_KEY = '-DONE-'
 
         layout = self.get_layout()
 
         window = sg.Window('Particle Sizing', layout)
-        orig_graph = window['-ORIGINAL-']
-        clean_graph = window['-CLEANED-']
-        particle_size = window['-SIZE-']
+        orig_graph = window[self.ORIGINAL_KEY]
+        processed_graph = window[self.PROCESSED_KEY]
+        particle_size = window[self.PARTICLE_SIZE_KEY]
 
         orig_image_id = None
         orig_image = None
@@ -27,15 +32,16 @@ class Application:
             # print(event, values)
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
-            elif event == '-FILENAME-':
-                orig_image = cv2.imread(values['-FILENAME-'], cv2.IMREAD_COLOR)
+            elif event == self.FILENAME_KEY:
+                orig_image = cv2.imread(
+                    values[self.FILENAME_KEY], cv2.IMREAD_COLOR)
                 img_bytes, location = self.scale_img_to_graph(
                     orig_image, orig_graph)
                 if orig_image_id:
                     orig_graph.delete_figure(orig_image_id)
                 orig_image_id = orig_graph.draw_image(
                     data=img_bytes, location=location)
-            elif event == '-DONE-':
+            elif event == self.DONE_KEY:
                 # get region of interest
                 if prior_rect is None or orig_image is None:
                     continue
@@ -119,11 +125,12 @@ class Application:
                 particle_size.update(
                     value=f'3. Particle size is: {particle_area} mm2')
                 particle_bytes, location = self.scale_img_to_graph(
-                    particle_thresh, clean_graph)
-                clean_graph.erase()
-                clean_graph.draw_image(data=particle_bytes, location=location)
-            elif event == '-ORIGINAL-':
-                x, y = values["-ORIGINAL-"]
+                    particle_thresh, processed_graph)
+                processed_graph.erase()
+                processed_graph.draw_image(
+                    data=particle_bytes, location=location)
+            elif event == self.ORIGINAL_KEY:
+                x, y = values[self.ORIGINAL_KEY]
                 if not dragging:
                     start_point = (x, y)
                     dragging = True
@@ -199,24 +206,24 @@ class Application:
 
     def get_layout(self):
         return [[sg.Text('1. Please select a photo:'),
-                 sg.InputText(size=(50, 1), key='-FILENAME-',
+                 sg.InputText(size=(50, 1), key=self.FILENAME_KEY,
                               enable_events=True, readonly=True),
                  sg.FileBrowse()],
                 [sg.Text('2. Please highlight the text and scale with your mouse.'),
-                 sg.Button('Done', key='-DONE-')],
+                 sg.Button('Done', key=self.DONE_KEY)],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
                 [sg.InputText(default_text='3. Particle size is: ',
-                              key='-SIZE-', readonly=True)],
+                              key=self.PARTICLE_SIZE_KEY, readonly=True)],
                 [sg.Text('4. Choose another image.')]
                 ]
 
     def create_original_image(self):
-        return sg.Graph(key='-ORIGINAL-', canvas_size=self.graph_size, graph_bottom_left=(0, 0),
+        return sg.Graph(key=self.ORIGINAL_KEY, canvas_size=self.graph_size, graph_bottom_left=(0, 0),
                         graph_top_right=self.graph_size,
                         border_width=1, change_submits=True, background_color='lightblue', drag_submits=True)
 
     def create_cleaned_image(self):
-        return sg.Graph(key='-CLEANED-', canvas_size=self.graph_size, graph_bottom_left=(0, 0),
+        return sg.Graph(key=self.PROCESSED_KEY, canvas_size=self.graph_size, graph_bottom_left=(0, 0),
                         graph_top_right=self.graph_size, background_color='lightblue',
                         border_width=1)
 
