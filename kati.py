@@ -15,6 +15,7 @@ class Application:
         self.FILENAME_KEY = '-FILENAME-'
         self.SCALE_SLIDER_KEY = '-SCALE-SLIDER-KEY-'
         self.IMAGE_SLIDER_KEY = '-IMAGE-SLIDER-KEY-'
+        self.SCALE_SIZE_KEY = '-SCALE-SIZE-KEY-'
         self.DONE_KEY = '-DONE-'
 
         layout = self.get_layout()
@@ -24,7 +25,8 @@ class Application:
         processed_graph = window[self.PROCESSED_KEY]
         particle_size = window[self.PARTICLE_SIZE_KEY]
         scale_slider = window[self.SCALE_SLIDER_KEY]
-        #image_slider = window[self.IMAGE_SLIDER_KEY]
+        image_slider = window[self.IMAGE_SLIDER_KEY]
+        scale_size = window[self.SCALE_SIZE_KEY]
 
         orig_image_id = None
         orig_image = None
@@ -55,8 +57,8 @@ class Application:
                 # Blur image
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
                 blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
-                thr = cv2.adaptiveThreshold(
-                    blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 51, 20)
+                _, thr = cv2.threshold(
+                    blur, values[self.SCALE_SLIDER_KEY], 255, cv2.THRESH_BINARY_INV)
 
                 # get connected components
                 num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(
@@ -105,34 +107,12 @@ class Application:
 
                 # calculate real-life size of pixel
                 scale_size = np.max(lengths_and_widths)
-                pixel_size_in_microns = 1000 / scale_size
+                pixel_size_in_microns = (self.get_scale_mm(
+                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size
 
-                # remove highlighted area
                 particle = orig_image.copy()
-                particle[ys[0]:ys[1], xs[0]:xs[1]] = 255
-
-                # apply threshold
-                kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-                particle = cv2.filter2D(particle, -1, kernel)
-                particle_blur = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
-                particle_thresh = cv2.threshold(
-                    particle_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-                num_particle_pixels = cv2.countNonZero(particle_thresh)
-                particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
-
-                # calculate area
-                particle_area = (
-                    pixel_size_in_microns * pixel_size_in_microns * num_particle_pixels) / 1000000
-                particle_area = round(particle_area, 4)
-
-                # reflect changes in gui
-                particle_size.update(
-                    value=f'3. Particle size is: {particle_area} mm2')
-                particle_bytes, location = self.scale_img_to_graph(
-                    particle_thresh, processed_graph)
-                processed_graph.erase()
-                processed_graph.draw_image(
-                    data=particle_bytes, location=location)
+                self.draw_processed_particle(
+                    particle, values[self.IMAGE_SLIDER_KEY], ys, xs, pixel_size_in_microns, particle_size, processed_graph)
             elif event == self.ORIGINAL_KEY:
                 x, y = values[self.ORIGINAL_KEY]
                 if not dragging:
@@ -146,14 +126,53 @@ class Application:
                     prior_rect_id = orig_graph.draw_rectangle(
                         start_point, end_point, line_color='red')
             elif event == self.SCALE_SLIDER_KEY:
-                self.draw_thresholded_scale(
+                if prior_rect_id is None or orig_image is None:
+                    continue
+                img_bytes, location = self.draw_thresholded_scale(
                     values[self.SCALE_SLIDER_KEY], orig_graph, orig_image, orig_image_id, prior_rect_id)
+                orig_graph.delete_figure(orig_image_id)
+                orig_image_id = orig_graph.draw_image(
+                    data=img_bytes, location=location)
+            elif event == self.IMAGE_SLIDER_KEY:
+                if prior_rect_id is None or orig_image is None:
+                    continue
+                roi, ys, xs = self.get_region_of_interest(
+                    orig_graph, prior_rect_id, orig_image)
+
+                pixel_size_in_microns = (self.get_scale_mm(
+                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size
+
+                particle = orig_image.copy()
+                self.draw_processed_particle(
+                    particle, values[self.IMAGE_SLIDER_KEY], ys, xs, pixel_size_in_microns, particle_size, processed_graph)
+            elif event == self.SCALE_SIZE_KEY:
+                inputVal = self.get_scale_mm(values[self.SCALE_SIZE_KEY])
+                if inputVal is None:
+                    scale_size.update(background_color='red')
+                else:
+                    scale_size.update(background_color='#E0F5FF')
+
+                if prior_rect_id is None or orig_image is None:
+                    continue
+                roi, ys, xs = self.get_region_of_interest(
+                    orig_graph, prior_rect_id, orig_image)
+
+                pixel_size_in_microns = (self.get_scale_mm(
+                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size
+
+                particle = orig_image.copy()
+                self.draw_processed_particle(
+                    particle, values[self.IMAGE_SLIDER_KEY], ys, xs, pixel_size_in_microns, particle_size, processed_graph)
+
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
                 start_point, end_point = None, None  # enable grabbing a new rect
                 dragging = False
 
-                self.draw_thresholded_scale(
+                img_bytes, location = self.draw_thresholded_scale(
                     values[self.SCALE_SLIDER_KEY], orig_graph, orig_image, orig_image_id, prior_rect_id)
+                orig_graph.delete_figure(orig_image_id)
+                orig_image_id = orig_graph.draw_image(
+                    data=img_bytes, location=location)
 
         window.close()
 
@@ -214,6 +233,12 @@ class Application:
 
         return img[y1:y2, x1:x2], (y1, y2), (x1, x2)
 
+    def get_scale_mm(self, inputVal):
+        try:
+            return float(inputVal)
+        except:
+            return None
+
     def draw_thresholded_scale(self, thresh, graph, image, image_id, box_id):
         if box_id is None or image is None:
             return
@@ -232,11 +257,42 @@ class Application:
         new_img = image.copy()
         new_img[ys[0]:ys[1], xs[0]:xs[1]] = thr
 
-        img_bytes, location = self.scale_img_to_graph(
+        return self.scale_img_to_graph(
             new_img, graph)
-        graph.delete_figure(image_id)
-        orig_image_id = graph.draw_image(
-            data=img_bytes, location=location)
+
+    def draw_processed_particle(self, particle, thresh, ys, xs, pixel_size_in_microns, particle_size, processed_graph):
+        if pixel_size_in_microns is None:
+            return
+        # remove highlighted area
+        particle[ys[0]:ys[1], xs[0]:xs[1]] = 255
+
+        # apply threshold
+        kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+        particle = cv2.filter2D(particle, -1, kernel)
+        particle_blur = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
+        particle_blur = cv2.GaussianBlur(particle_blur, (5, 5), 0)
+        thresh = int(thresh)
+        particle_thresh = cv2.threshold(
+            particle_blur, thresh, 255, cv2.THRESH_BINARY_INV)[1]
+
+        # particle_thresh = cv2.adaptiveThreshold(
+        #     particle_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, thresh)
+        num_particle_pixels = cv2.countNonZero(particle_thresh)
+        particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
+
+        # calculate area
+        particle_area = (pixel_size_in_microns * pixel_size_in_microns *
+                         num_particle_pixels) / (1000000)
+        particle_area = round(particle_area, 4)
+
+        # reflect changes in gui
+        particle_size.update(
+            value=f' , then particle size is: {particle_area} mm2')
+        particle_bytes, location = self.scale_img_to_graph(
+            particle_thresh, processed_graph)
+        processed_graph.erase()
+        processed_graph.draw_image(
+            data=particle_bytes, location=location)
 
     def get_layout(self):
         return [[sg.Text('1. Please select a photo:'),
@@ -247,9 +303,11 @@ class Application:
                  sg.Button('Done', key=self.DONE_KEY)],
                 [sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
                                                        orientation='horizontal', key=self.SCALE_SLIDER_KEY, enable_events=True)],
+                [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
+                                                       orientation='horizontal', key=self.IMAGE_SLIDER_KEY, enable_events=True)],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
-                [sg.InputText(default_text='3. Particle size is: ',
-                              key=self.PARTICLE_SIZE_KEY, readonly=True)],
+                [sg.Text('3. If the scale is '), sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=self.SCALE_SIZE_KEY), sg.Text('mm'), sg.InputText(default_text='mm , then particle size is: ',
+                                                                                                                                                                          key=self.PARTICLE_SIZE_KEY, readonly=True)],
                 [sg.Text('4. Choose another image.')]
                 ]
 
