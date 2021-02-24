@@ -13,6 +13,8 @@ class Application:
         self.PROCESSED_KEY = '-PROCESSED-'
         self.PARTICLE_SIZE_KEY = '-PARTICLE-SIZE-'
         self.FILENAME_KEY = '-FILENAME-'
+        self.SCALE_SLIDER_KEY = '-SCALE-SLIDER-KEY-'
+        self.IMAGE_SLIDER_KEY = '-IMAGE-SLIDER-KEY-'
         self.DONE_KEY = '-DONE-'
 
         layout = self.get_layout()
@@ -21,11 +23,13 @@ class Application:
         orig_graph = window[self.ORIGINAL_KEY]
         processed_graph = window[self.PROCESSED_KEY]
         particle_size = window[self.PARTICLE_SIZE_KEY]
+        scale_slider = window[self.SCALE_SLIDER_KEY]
+        #image_slider = window[self.IMAGE_SLIDER_KEY]
 
         orig_image_id = None
         orig_image = None
         dragging = False
-        start_point = end_point = prior_rect = None
+        start_point = end_point = prior_rect_id = None
 
         while True:  # Event Loop
             event, values = window.read()
@@ -43,10 +47,10 @@ class Application:
                     data=img_bytes, location=location)
             elif event == self.DONE_KEY:
                 # get region of interest
-                if prior_rect is None or orig_image is None:
+                if prior_rect_id is None or orig_image is None:
                     continue
                 roi, ys, xs = self.get_region_of_interest(
-                    orig_graph, prior_rect, orig_image)
+                    orig_graph, prior_rect_id, orig_image)
 
                 # Blur image
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -136,14 +140,20 @@ class Application:
                     dragging = True
                 else:
                     end_point = (x, y)
-                if prior_rect:
-                    orig_graph.delete_figure(prior_rect)
+                if prior_rect_id:
+                    orig_graph.delete_figure(prior_rect_id)
                 if None not in (start_point, end_point):
-                    prior_rect = orig_graph.draw_rectangle(
+                    prior_rect_id = orig_graph.draw_rectangle(
                         start_point, end_point, line_color='red')
+            elif event == self.SCALE_SLIDER_KEY:
+                self.draw_thresholded_scale(
+                    values[self.SCALE_SLIDER_KEY], orig_graph, orig_image, orig_image_id, prior_rect_id)
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
                 start_point, end_point = None, None  # enable grabbing a new rect
                 dragging = False
+
+                self.draw_thresholded_scale(
+                    values[self.SCALE_SLIDER_KEY], orig_graph, orig_image, orig_image_id, prior_rect_id)
 
         window.close()
 
@@ -204,13 +214,39 @@ class Application:
 
         return img[y1:y2, x1:x2], (y1, y2), (x1, x2)
 
+    def draw_thresholded_scale(self, thresh, graph, image, image_id, box_id):
+        if box_id is None or image is None:
+            return
+
+        roi, ys, xs = self.get_region_of_interest(
+            graph, box_id, image)
+
+        # Blur image
+        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
+        _, thr = cv2.threshold(
+            roi_gray, thresh, 255, cv2.THRESH_BINARY)
+
+        thr = cv2.cvtColor(thr, cv2.COLOR_GRAY2RGB)
+
+        new_img = image.copy()
+        new_img[ys[0]:ys[1], xs[0]:xs[1]] = thr
+
+        img_bytes, location = self.scale_img_to_graph(
+            new_img, graph)
+        graph.delete_figure(image_id)
+        orig_image_id = graph.draw_image(
+            data=img_bytes, location=location)
+
     def get_layout(self):
         return [[sg.Text('1. Please select a photo:'),
                  sg.InputText(size=(50, 1), key=self.FILENAME_KEY,
                               enable_events=True, readonly=True),
                  sg.FileBrowse()],
-                [sg.Text('2. Please highlight the text and scale with your mouse.'),
+                [sg.Text('2. Please highlight the text and scale with your mouse.\n   Adjust the threshold, then press done.'),
                  sg.Button('Done', key=self.DONE_KEY)],
+                [sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
+                                                       orientation='horizontal', key=self.SCALE_SLIDER_KEY, enable_events=True)],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
                 [sg.InputText(default_text='3. Particle size is: ',
                               key=self.PARTICLE_SIZE_KEY, readonly=True)],
