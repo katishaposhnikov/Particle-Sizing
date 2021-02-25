@@ -26,11 +26,12 @@ class Application:
         particle_size = window[self.PARTICLE_SIZE_KEY]
         scale_slider = window[self.SCALE_SLIDER_KEY]
         image_slider = window[self.IMAGE_SLIDER_KEY]
-        scale_size = window[self.SCALE_SIZE_KEY]
+        scale_size_input = window[self.SCALE_SIZE_KEY]
 
         orig_image_id = None
         orig_image = None
         dragging = False
+        scale_size_pixels = None
         start_point = end_point = prior_rect_id = None
 
         while True:  # Event Loop
@@ -106,11 +107,12 @@ class Application:
                     data=img_bytes, location=location)
 
                 # calculate real-life size of pixel
-                scale_size = np.max(lengths_and_widths)
+                scale_size_pixels = np.max(lengths_and_widths)
                 pixel_size_in_microns = (self.get_scale_mm(
-                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size
+                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size_pixels
 
                 particle = orig_image.copy()
+                # (self, particle, thresh, ys, xs, pixel_size_in_microns, particle_size, processed_graph):
                 self.draw_processed_particle(
                     particle, values[self.IMAGE_SLIDER_KEY], ys, xs, pixel_size_in_microns, particle_size, processed_graph)
             elif event == self.ORIGINAL_KEY:
@@ -140,7 +142,7 @@ class Application:
                     orig_graph, prior_rect_id, orig_image)
 
                 pixel_size_in_microns = (self.get_scale_mm(
-                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size
+                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size_pixels
 
                 particle = orig_image.copy()
                 self.draw_processed_particle(
@@ -148,9 +150,9 @@ class Application:
             elif event == self.SCALE_SIZE_KEY:
                 inputVal = self.get_scale_mm(values[self.SCALE_SIZE_KEY])
                 if inputVal is None:
-                    scale_size.update(background_color='red')
+                    scale_size_input.update(background_color='red')
                 else:
-                    scale_size.update(background_color='#E0F5FF')
+                    scale_size_input.update(background_color='#E0F5FF')
 
                 if prior_rect_id is None or orig_image is None:
                     continue
@@ -158,7 +160,7 @@ class Application:
                     orig_graph, prior_rect_id, orig_image)
 
                 pixel_size_in_microns = (self.get_scale_mm(
-                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size
+                    values[self.SCALE_SIZE_KEY]) * 1000) / scale_size_pixels
 
                 particle = orig_image.copy()
                 self.draw_processed_particle(
