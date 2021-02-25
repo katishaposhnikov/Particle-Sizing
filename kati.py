@@ -34,12 +34,22 @@ class Application:
         scale_size_pixels = None
         start_point = end_point = prior_rect_id = None
 
+        window.finalize()
+
+        scale_slider.bind('Left', '+DEC+')
+        scale_slider.bind('Right', '+INC+')
+
+        image_slider.bind('Left', '+DEC+')
+        image_slider.bind('Right', '+INC+')
+
         while True:  # Event Loop
             event, values = window.read()
-            # print(event, values)
+            print("event: ", event, '.', 'values:', values, ',')
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
             elif event == self.FILENAME_KEY:
+                if values[self.FILENAME_KEY] is None or len(values[self.FILENAME_KEY]) < 1:
+                    continue
                 orig_image = cv2.imread(
                     values[self.FILENAME_KEY], cv2.IMREAD_COLOR)
                 img_bytes, location = self.scale_img_to_graph(
@@ -48,6 +58,22 @@ class Application:
                     orig_graph.delete_figure(orig_image_id)
                 orig_image_id = orig_graph.draw_image(
                     data=img_bytes, location=location)
+            elif event.endswith('+DEC+'):
+                if event.startswith(self.SCALE_SLIDER_KEY):
+                    scale_slider.update(
+                        value=max(0, values[self.SCALE_SLIDER_KEY]-1))
+                elif event.startswith(self.IMAGE_SLIDER_KEY):
+                    image_slider.update(
+                        value=max(0, values[self.IMAGE_SLIDER_KEY]-1))
+                current_focus_slider = scale_slider
+            elif event.endswith('+INC+'):
+                if event.startswith(self.SCALE_SLIDER_KEY):
+                    scale_slider.update(
+                        value=min(255, values[self.SCALE_SLIDER_KEY]+1))
+                elif event.startswith(self.IMAGE_SLIDER_KEY):
+                    image_slider.update(
+                        value=min(255, values[self.IMAGE_SLIDER_KEY]+1))
+                current_focus_slider = scale_slider
             elif event == self.DONE_KEY:
                 # get region of interest
                 if prior_rect_id is None or orig_image is None:
@@ -128,6 +154,7 @@ class Application:
                     prior_rect_id = orig_graph.draw_rectangle(
                         start_point, end_point, line_color='red')
             elif event == self.SCALE_SLIDER_KEY:
+                scale_slider.set_focus(True)
                 if prior_rect_id is None or orig_image is None:
                     continue
                 img_bytes, location = self.draw_thresholded_scale(
@@ -136,6 +163,8 @@ class Application:
                 orig_image_id = orig_graph.draw_image(
                     data=img_bytes, location=location)
             elif event == self.IMAGE_SLIDER_KEY:
+                image_slider.set_focus(True)
+                current_focus_slider = image_slider
                 if prior_rect_id is None or orig_image is None:
                     continue
                 roi, ys, xs = self.get_region_of_interest(
@@ -165,6 +194,15 @@ class Application:
                 particle = orig_image.copy()
                 self.draw_processed_particle(
                     particle, values[self.IMAGE_SLIDER_KEY], ys, xs, pixel_size_in_microns, particle_size, processed_graph)
+            elif event == "Left:37" or event == "Right:39":
+                if event == "Left:37":
+                    val -= 1
+                else:
+                    val += 1
+
+                if current_focus_slider is not None:
+                    cur_val = values[current_focus_slider.key]
+                    current_focus_slider.update(value=cur_val + val)
 
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
                 start_point, end_point = None, None  # enable grabbing a new rect
