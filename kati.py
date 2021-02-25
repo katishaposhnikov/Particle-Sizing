@@ -8,7 +8,7 @@ class Application:
 
         sg.theme('BluePurple')
 
-        self.graph_size = (600, 400)
+        self.graph_size = (300, 200)
         self.ORIGINAL_KEY = '-ORIGINAL-'
         self.PROCESSED_KEY = '-PROCESSED-'
         self.PARTICLE_SIZE_KEY = '-PARTICLE-SIZE-'
