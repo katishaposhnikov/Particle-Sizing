@@ -44,12 +44,13 @@ class Application:
 
         while True:  # Event Loop
             event, values = window.read()
-            print("event: ", event, '.', 'values:', values, ',')
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
             elif event == self.FILENAME_KEY:
                 if values[self.FILENAME_KEY] is None or len(values[self.FILENAME_KEY]) < 1:
                     continue
+                orig_graph.erase()
+                processed_graph.erase()
                 orig_image = cv2.imread(
                     values[self.FILENAME_KEY], cv2.IMREAD_COLOR)
                 img_bytes, location = self.scale_img_to_graph(
@@ -327,7 +328,7 @@ class Application:
 
         # reflect changes in gui
         particle_size.update(
-            value=f' , then particle size is: {particle_area} mm2')
+            value=f'{particle_area} mm2')
         particle_bytes, location = self.scale_img_to_graph(
             particle_thresh, processed_graph)
         processed_graph.erase()
@@ -346,8 +347,8 @@ class Application:
                 [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
                                                        orientation='horizontal', key=self.IMAGE_SLIDER_KEY, enable_events=True)],
                 [self.create_original_image(), sg.VSep(), self.create_cleaned_image()],
-                [sg.Text('3. If the scale is '), sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=self.SCALE_SIZE_KEY), sg.Text('mm'), sg.InputText(default_text='mm , then particle size is: ',
-                                                                                                                                                                          key=self.PARTICLE_SIZE_KEY, readonly=True)],
+                [sg.Text('3. If the scale is '), sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=self.SCALE_SIZE_KEY), sg.Text('mm, then the particle is: '), sg.InputText(default_text='',
+                                                                                                                                                                                                  key=self.PARTICLE_SIZE_KEY, readonly=True)],
                 [sg.Text('4. Choose another image.')]
                 ]
 
