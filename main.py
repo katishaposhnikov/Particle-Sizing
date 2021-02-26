@@ -67,8 +67,8 @@ def get_layout():
             [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
                                                    orientation='horizontal', key=IMAGE_SLIDER_KEY,
                                                    enable_events=True),
-             sg.Radio(text='Mask', group_id='overlay', enable_events=True, key=MASK_RADIO_KEY),
-             sg.Radio(text='Particle', group_id='overlay', default=True, enable_events=True,
+             sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True, key=MASK_RADIO_KEY),
+             sg.Radio(text='Particle', group_id='overlay', enable_events=True,
                       key=PARTICLE_RADIO_KEY),
              sg.Radio(text='Background', group_id='overlay', enable_events=True, key=BACKGROUND_RADIO_KEY)],
             [create_original_image(), sg.VSep(), create_processed_image()],
@@ -78,6 +78,51 @@ def get_layout():
                                                                  key=PARTICLE_SIZE_KEY, readonly=True)],
             [sg.Text('4. Choose another image.')]
             ]
+
+
+def get_scale_data(img, graph):
+    old_height, old_width = img.shape[0], img.shape[1]
+    graph_width, graph_height = graph.get_size()
+    height_ratio = graph_height / old_height
+    width_ratio = graph_width / old_width
+    scale = min(height_ratio, width_ratio)
+
+    new_height = int(old_height * scale)
+    new_width = int(old_width * scale)
+
+    x_offset = int((graph_width - new_width) / 2)
+    y_offset = int((graph_height - new_height) / 2)
+
+    return scale, x_offset, y_offset
+
+
+def graph_coords_to_image_coords(xy, img, graph):
+    scale, x_offset, y_offset = get_scale_data(img, graph)
+    nx = (xy[0] - x_offset) / scale
+    ny = (xy[1] - y_offset) / scale
+    return nx, ny
+
+
+def img_coords_to_graph_coords(xy, img, graph):
+    scale, x_offset, y_offset = get_scale_data(img, graph)
+    nx = xy[0] * scale + x_offset
+    ny = xy[1] * scale + y_offset
+    return nx, ny
+
+
+def scale_img_to_graph(img, graph):
+    scale, x_offset, y_offset = get_scale_data(img, graph)
+    old_height, old_width = img.shape[0], img.shape[1]
+
+    new_height = int(old_height * scale)
+    new_width = int(old_width * scale)
+
+    resize = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    img_bytes = cv2.imencode('.png', resize)[1].tobytes()
+
+    location = (x_offset, graph.get_size()[1] - y_offset)
+
+    return img_bytes, location
 
 
 class Application:
@@ -104,6 +149,10 @@ class Application:
         self.end_point = None
         self.dragging = False
 
+        self.pixel_size_in_microns = None
+        self.scale_size_mm = None
+        self.scale_size_pixels = None
+
         window.finalize()
 
         self.scale_slider.bind('Left', '+DEC+')
@@ -111,10 +160,6 @@ class Application:
 
         self.image_slider.bind('Left', '+DEC+')
         self.image_slider.bind('Right', '+INC+')
-
-        redraw_original = False
-        redraw_roi = False
-        redraw_processed = False
 
         while True:  # Event Loop
             event, values = window.read()
@@ -138,10 +183,11 @@ class Application:
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
                 if values[FILENAME_KEY] is not None and len(values[FILENAME_KEY]) > 0:
                     self.create_region_of_interest()
+                    self.create_processed_particle()
                 self.start_point, self.end_point = None, None  # enable grabbing a new rect
                 self.dragging = False
                 redraw_roi = True
-                redraw_original = True
+                redraw_processed = True
 
             self.redraw(redraw_original=redraw_original, redraw_roi=redraw_roi, redraw_processed=redraw_processed)
 
@@ -157,13 +203,14 @@ class Application:
         self.orig_graph.erase()
 
         if self.orig_image is not None:
-            img_bytes, location = self.scale_img_to_graph(self.orig_image, self.orig_graph)
+            img_bytes, location = scale_img_to_graph(self.orig_image, self.orig_graph)
             self.orig_graph.draw_image(data=img_bytes, location=location)
 
     def redraw_roi(self):
+        if self.prior_rect_id:
+            self.orig_graph.delete_figure(self.prior_rect_id)
+            
         if self.dragging:
-            if self.prior_rect_id:
-                self.orig_graph.delete_figure(self.prior_rect_id)
             if None not in (self.start_point, self.end_point):
                 self.prior_rect_id = self.orig_graph.draw_rectangle(
                     self.start_point, self.end_point, line_color='red')
@@ -175,37 +222,17 @@ class Application:
         self.processed_graph.erase()
 
         if self.processed_image is not None:
-            img_bytes, location = self.scale_img_to_graph(self.processed_image, self.processed_graph)
-            self.processed_graph.draw_image(data=img_bytes, location=location)
+            if self.radio_option == BACKGROUND_RADIO_KEY:
+                bytes_to_draw, location = scale_img_to_graph(cv2.bitwise_and(
+                    self.orig_image, self.orig_image, mask=cv2.bitwise_not(self.processed_image)), self.processed_graph)
+            elif self.radio_option == PARTICLE_RADIO_KEY:
+                bytes_to_draw, location = scale_img_to_graph(cv2.bitwise_and(
+                    self.orig_image, self.orig_image, mask=self.processed_image), self.processed_graph)
+            else:
+                bytes_to_draw, location = scale_img_to_graph(
+                    self.processed_image, self.processed_graph)
 
-    def get_scale_data(self, img, graph):
-        old_height, old_width = img.shape[0], img.shape[1]
-        graph_width, graph_height = graph.get_size()
-        height_ratio = graph_height / old_height
-        width_ratio = graph_width / old_width
-        scale = min(height_ratio, width_ratio)
-
-        new_height = int(old_height * scale)
-        new_width = int(old_width * scale)
-
-        x_offset = int((graph_width - new_width) / 2)
-        y_offset = int((graph_height - new_height) / 2)
-
-        return scale, x_offset, y_offset
-
-    def scale_img_to_graph(self, img, graph):
-        scale, x_offset, y_offset = self.get_scale_data(img, graph)
-        old_height, old_width = img.shape[0], img.shape[1]
-
-        new_height = int(old_height * scale)
-        new_width = int(old_width * scale)
-
-        resize = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-        img_bytes = cv2.imencode('.png', resize)[1].tobytes()
-
-        location = (x_offset, graph.get_size()[1] - y_offset)
-
-        return img_bytes, location
+            self.processed_graph.draw_image(data=bytes_to_draw, location=location)
 
     def create_region_of_interest(self):
         # upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
@@ -214,9 +241,9 @@ class Application:
         upper_left = (min(sx, ex), max(sy, ey))
         lower_right = (max(sx, ex), min(sy, ey))
 
-        upper_left_image = self.graph_coords_to_image_coords(
+        upper_left_image = graph_coords_to_image_coords(
             upper_left, img=self.orig_image, graph=self.orig_graph)
-        lower_right_image = self.graph_coords_to_image_coords(
+        lower_right_image = graph_coords_to_image_coords(
             lower_right, img=self.orig_image, graph=self.orig_graph)
 
         y1 = int(self.orig_image.shape[0] - upper_left_image[1])
@@ -225,13 +252,13 @@ class Application:
         x2 = int(lower_right_image[0])
         roi = self.orig_image[y1:y2, x1:x2]
         if roi is not None:
-            annotated_roi = self.extract_scale(roi, (y1, y2), (x1, x2))
+            annotated_roi = self.extract_scale(roi)
             resize = cv2.resize(annotated_roi, (lower_right[0] - upper_left[0], upper_left[1] - lower_right[1]),
                                 interpolation=cv2.INTER_AREA)
             img_bytes = cv2.imencode('.png', resize)[1].tobytes()
             self.region_of_interest = RegionOfInterest(img_bytes, upper_left, (y1, y2), (x1, x2))
 
-    def extract_scale(self, roi, ys, xs):
+    def extract_scale(self, roi):
         # Blur image
         roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
@@ -250,6 +277,8 @@ class Application:
         # add 1 because we ignored background
         largest_cc = (np.argmax(lengths_and_widths) %
                       lengths_and_widths.shape[1]) + 1
+
+        self.scale_size_pixels = np.max(lengths_and_widths)
 
         # highlight it bright red on the left graph
         # In HSV 179 is red
@@ -276,17 +305,53 @@ class Application:
         dst = cv2.add(img1_bg, img2_fg)
         return dst
 
-    def img_coords_to_graph_coords(self, xy, img, graph):
-        scale, x_offset, y_offset = self.get_scale_data(img, graph)
-        nx = xy[0] * scale + x_offset
-        ny = xy[1] * scale + y_offset
-        return nx, ny
+    def create_processed_particle(self):
+        # remove the scale area
+        particle = self.orig_image.copy()
+        ys = self.region_of_interest.y_bounds
+        xs = self.region_of_interest.x_bounds
+        particle[ys[0]:ys[1], xs[0]:xs[1]] = 255
+        # apply thresholding
+        particle_gray = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(particle_gray, (5, 5), 0)
+        particle_thr_val, particle_thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    def graph_coords_to_image_coords(self, xy, img, graph):
-        scale, x_offset, y_offset = self.get_scale_data(img, graph)
-        nx = (xy[0] - x_offset) / scale
-        ny = (xy[1] - y_offset) / scale
-        return nx, ny
+        # update the ui to reflect the automatically chosen threshold
+        self.image_slider.update(value=particle_thr_val)
+
+        # remove halo of region of interest selection rectangle
+        particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
+
+        # calculate real-life size of pixel
+        scale_mm = self.get_scale_mm()
+        if scale_mm is None:
+            self.processed_graph.draw_text('Please specify a valid number for scale size in millimeters.',
+                                           location=(10, self.processed_graph.get_size()[1] / 2))
+            return
+        self.pixel_size_in_microns = (scale_mm * 1000) / self.scale_size_pixels
+
+        # calculate number of pixels
+        num_particle_pixels = cv2.countNonZero(particle_thresh)
+
+        # calculate area of particle
+        particle_area = (self.pixel_size_in_microns * self.pixel_size_in_microns *
+                         num_particle_pixels) / 1000000
+        particle_area = round(particle_area, 4)
+
+        # update size ui
+        self.particle_size.update(value=f'{particle_area} mm2')
+
+        # create the particle mask
+        self.processed_image = particle_thresh
+
+    def get_scale_mm(self):
+        input_val = self.scale_size_input.get()
+        if input_val is None or len(input_val) == 0:
+            return None
+        try:
+            return float(input_val)
+        except ValueError:
+            return None
 
 
 # start the app
