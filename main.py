@@ -140,6 +140,7 @@ class Application:
         self.orig_image = np.zeros((1, 1, 4), np.uint8)
         self.processed_image = np.zeros((1, 1, 4), np.uint8)
         self.region_of_interest = None
+        self.region_of_interest_id = None
         self.prior_rect_id = None
         self.scale_size_pixels = None
         self.scale_size_mm = None
@@ -181,13 +182,14 @@ class Application:
                     self.end_point = (x, y)
                 redraw_roi = True
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
-                if values[FILENAME_KEY] is not None and len(values[FILENAME_KEY]) > 0:
+                if values[FILENAME_KEY] is not None and len(
+                        values[FILENAME_KEY]) > 0 and self.start_point and self.end_point:
                     self.create_region_of_interest()
                     self.create_processed_particle()
+                    redraw_roi = True
+                    redraw_processed = True
                 self.start_point, self.end_point = None, None  # enable grabbing a new rect
                 self.dragging = False
-                redraw_roi = True
-                redraw_processed = True
 
             self.redraw(redraw_original=redraw_original, redraw_roi=redraw_roi, redraw_processed=redraw_processed)
 
@@ -209,14 +211,16 @@ class Application:
     def redraw_roi(self):
         if self.prior_rect_id:
             self.orig_graph.delete_figure(self.prior_rect_id)
-            
+        if self.region_of_interest_id:
+            self.orig_graph.delete_figure(self.region_of_interest_id)
+
         if self.dragging:
             if None not in (self.start_point, self.end_point):
                 self.prior_rect_id = self.orig_graph.draw_rectangle(
                     self.start_point, self.end_point, line_color='red')
         elif self.region_of_interest is not None:
-            self.orig_graph.draw_image(data=self.region_of_interest.img_bytes,
-                                       location=self.region_of_interest.graph_location)
+            self.region_of_interest_id = self.orig_graph.draw_image(data=self.region_of_interest.img_bytes,
+                                                                    location=self.region_of_interest.graph_location)
 
     def redraw_processed(self):
         self.processed_graph.erase()
@@ -251,7 +255,7 @@ class Application:
         x1 = int(upper_left_image[0])
         x2 = int(lower_right_image[0])
         roi = self.orig_image[y1:y2, x1:x2]
-        if roi is not None:
+        if 0 not in roi.shape:
             annotated_roi = self.extract_scale(roi)
             resize = cv2.resize(annotated_roi, (lower_right[0] - upper_left[0], upper_left[1] - lower_right[1]),
                                 interpolation=cv2.INTER_AREA)
@@ -306,6 +310,8 @@ class Application:
         return dst
 
     def create_processed_particle(self):
+        if self.region_of_interest is None:
+            return
         # remove the scale area
         particle = self.orig_image.copy()
         ys = self.region_of_interest.y_bounds
