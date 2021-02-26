@@ -2,6 +2,29 @@ import PySimpleGUI as sg
 import cv2
 import numpy as np
 
+################ CONSTANTS ################
+
+ORIGINAL_KEY = '-ORIGINAL-'
+PROCESSED_KEY = '-PROCESSED-'
+PARTICLE_SIZE_KEY = '-PARTICLE-SIZE-'
+FILENAME_KEY = '-FILENAME-'
+SCALE_SLIDER_KEY = '-SCALE-SLIDER-KEY-'
+IMAGE_SLIDER_KEY = '-IMAGE-SLIDER-KEY-'
+SCALE_SIZE_KEY = '-SCALE-SIZE-KEY-'
+MASK_RADIO_KEY = '-MASK-RADIO-KEY-'
+PARTICLE_RADIO_KEY = '-PARTICLE-RADIO-KEY-'
+BACKGROUND_RADIO_KEY = 'BACKGROUND-RADIO-KEY-'
+DONE_KEY = '-DONE-'
+
+################ CONSTANTS ################
+
+
+class RegionOfInterest:
+    def __init__(self, img_bytes, y_bounds, x_bounds):
+        self.img_bytes = img_bytes
+        self.y_bounds = y_bounds
+        self.x_bounds = x_bounds
+
 
 class Application:
     def __init__(self):
@@ -9,27 +32,16 @@ class Application:
         sg.theme('BluePurple')
 
         self.graph_size = (300, 200)
-        self.ORIGINAL_KEY = '-ORIGINAL-'
-        self.PROCESSED_KEY = '-PROCESSED-'
-        self.PARTICLE_SIZE_KEY = '-PARTICLE-SIZE-'
-        self.FILENAME_KEY = '-FILENAME-'
-        self.SCALE_SLIDER_KEY = '-SCALE-SLIDER-KEY-'
-        self.IMAGE_SLIDER_KEY = '-IMAGE-SLIDER-KEY-'
-        self.SCALE_SIZE_KEY = '-SCALE-SIZE-KEY-'
-        self.MASK_RADIO_KEY = '-MASK-RADIO-KEY-'
-        self.PARTICLE_RADIO_KEY = '-PARTICLE-RADIO-KEY-'
-        self.BACKGROUND_RADIO_KEY = 'BACKGROUND-RADIO-KEY-'
-        self.DONE_KEY = '-DONE-'
 
         layout = self.get_layout()
 
         window = sg.Window('Particle Sizing', layout)
-        self.orig_graph = window[self.ORIGINAL_KEY]
-        self.processed_graph = window[self.PROCESSED_KEY]
-        self.particle_size = window[self.PARTICLE_SIZE_KEY]
-        self.scale_slider = window[self.SCALE_SLIDER_KEY]
-        self.image_slider = window[self.IMAGE_SLIDER_KEY]
-        self.scale_size_input = window[self.SCALE_SIZE_KEY]
+        self.orig_graph = window[ORIGINAL_KEY]
+        self.processed_graph = window[PROCESSED_KEY]
+        self.particle_size = window[PARTICLE_SIZE_KEY]
+        self.scale_slider = window[SCALE_SLIDER_KEY]
+        self.image_slider = window[IMAGE_SLIDER_KEY]
+        self.scale_size_input = window[SCALE_SIZE_KEY]
 
         self.orig_image_id = None
         self.orig_image = np.zeros((1, 1, 3), np.uint8)
@@ -51,13 +63,13 @@ class Application:
             event, values = window.read()
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
-            elif event == self.FILENAME_KEY:
-                if values[self.FILENAME_KEY] is None or len(values[self.FILENAME_KEY]) < 1:
+            elif event == FILENAME_KEY:
+                if values[FILENAME_KEY] is None or len(values[FILENAME_KEY]) < 1:
                     continue
                 self.orig_graph.erase()
                 self.processed_graph.erase()
                 self.orig_image = cv2.imread(
-                    values[self.FILENAME_KEY], cv2.IMREAD_COLOR)
+                    values[FILENAME_KEY], cv2.IMREAD_COLOR)
                 img_bytes, location = self.scale_img_to_graph(
                     self.orig_image, self.orig_graph)
                 if self.orig_image_id:
@@ -65,35 +77,26 @@ class Application:
                 self.orig_image_id = self.orig_graph.draw_image(
                     data=img_bytes, location=location)
             elif event.endswith('+DEC+'):
-                if event.startswith(self.SCALE_SLIDER_KEY):
+                if event.startswith(SCALE_SLIDER_KEY):
                     self.scale_slider.update(
-                        value=max(0, values[self.SCALE_SLIDER_KEY]-1))
-                elif event.startswith(self.IMAGE_SLIDER_KEY):
+                        value=max(0, values[SCALE_SLIDER_KEY]-1))
+                    current_focus_slider = self.scale_slider
+                elif event.startswith(IMAGE_SLIDER_KEY):
                     self.image_slider.update(
-                        value=max(0, values[self.IMAGE_SLIDER_KEY]-1))
-                current_focus_slider = self.scale_slider
+                        value=max(0, values[IMAGE_SLIDER_KEY]-1))
+                    current_focus_slider = self.image_slider
             elif event.endswith('+INC+'):
-                if event.startswith(self.SCALE_SLIDER_KEY):
+                if event.startswith(SCALE_SLIDER_KEY):
                     self.scale_slider.update(
-                        value=min(255, values[self.SCALE_SLIDER_KEY]+1))
-                elif event.startswith(self.IMAGE_SLIDER_KEY):
+                        value=min(255, values[SCALE_SLIDER_KEY]+1))
+                    current_focus_slider = self.scale_slider
+                elif event.startswith(IMAGE_SLIDER_KEY):
                     self.image_slider.update(
-                        value=min(255, values[self.IMAGE_SLIDER_KEY]+1))
-                current_focus_slider = self.scale_slider
+                        value=min(255, values[IMAGE_SLIDER_KEY]+1))
+                    current_focus_slider = self.image_slider
             elif event == self.MASK_RADIO_KEY:
                 self.radio_option = self.MASK_RADIO_KEY
-                if self.prior_rect_id is None or self.orig_image is None or self.scale_size_pixels is None:
-                    continue
-                roi, ys, xs = self.get_region_of_interest()
-                scale_mm = self.get_scale_mm(values[self.SCALE_SIZE_KEY])
-                if scale_mm is None:
-                    continue
-                self.pixel_size_in_microns = (
-                    scale_mm * 1000) / self.scale_size_pixels
-
-                particle = self.orig_image.copy()
-                self.draw_processed_particle(
-                    particle, values[self.IMAGE_SLIDER_KEY], ys, xs, self.pixel_size_in_microns, self.particle_size, self.processed_graph, self.radio_option)
+                self.redraw_processed_graph()
             elif event == self.PARTICLE_RADIO_KEY:
                 self.radio_option = self.PARTICLE_RADIO_KEY
                 if self.prior_rect_id is None or self.orig_image is None or self.scale_size_pixels is None:
@@ -336,6 +339,20 @@ class Application:
             return float(inputVal)
         except:
             return None
+
+    def redraw_processed_graph(self):
+        if self.prior_rect_id is None or self.orig_image is None or self.scale_size_pixels is None:
+            return
+        roi, ys, xs = self.get_region_of_interest()
+        scale_mm = self.get_scale_mm(values[SCALE_SIZE_KEY])
+        if scale_mm is None:
+            continue
+        self.pixel_size_in_microns = (
+            scale_mm * 1000) / self.scale_size_pixels
+
+        particle = self.orig_image.copy()
+        self.draw_processed_particle(
+            particle, values[self.IMAGE_SLIDER_KEY], ys, xs, self.pixel_size_in_microns, self.particle_size, self.processed_graph, self.radio_option)
 
     def draw_thresholded_scale(self, thresh, graph, image, image_id, box_id):
         if box_id is None or image is None:
