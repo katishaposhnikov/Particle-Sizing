@@ -136,6 +136,7 @@ class Application:
         self.scale_slider = window[SCALE_SLIDER_KEY]
         self.image_slider = window[IMAGE_SLIDER_KEY]
         self.scale_size_input = window[SCALE_SIZE_KEY]
+        self.current_focus_slider = None
 
         self.orig_image = np.zeros((1, 1, 4), np.uint8)
         self.processed_image = np.zeros((1, 1, 4), np.uint8)
@@ -154,6 +155,10 @@ class Application:
         self.scale_size_mm = None
         self.scale_size_pixels = None
 
+        self.should_redraw_original = False
+        self.should_redraw_roi = False
+        self.should_redraw_processed = False
+
         window.finalize()
 
         self.scale_slider.bind('Left', '+DEC+')
@@ -163,8 +168,8 @@ class Application:
         self.image_slider.bind('Right', '+INC+')
 
         while True:  # Event Loop
+            self.should_redraw_original = self.should_redraw_roi = self.should_redraw_processed = False
             event, values = window.read()
-            redraw_original = redraw_roi = redraw_processed = False
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
             elif event == FILENAME_KEY:
@@ -172,7 +177,7 @@ class Application:
                     continue
                 self.orig_image = cv2.imread(values[FILENAME_KEY], cv2.IMREAD_COLOR)
                 self.region_of_interest = None
-                redraw_original = True
+                self.should_redraw_original = True
             elif event == ORIGINAL_KEY:
                 x, y = values[ORIGINAL_KEY]
                 if not self.dragging:
@@ -180,25 +185,38 @@ class Application:
                     self.dragging = True
                 else:
                     self.end_point = (x, y)
-                redraw_roi = True
+                self.should_redraw_roi = True
             elif event.endswith('+UP'):  # The drawing has ended because mouse up
                 if values[FILENAME_KEY] is not None and len(
                         values[FILENAME_KEY]) > 0 and self.start_point and self.end_point:
                     self.create_region_of_interest()
                     self.create_processed_particle()
-                    redraw_roi = True
-                    redraw_processed = True
+                    self.should_redraw_roi = True
+                    self.should_redraw_processed = True
                 self.start_point, self.end_point = None, None  # enable grabbing a new rect
                 self.dragging = False
+            elif event.endswith('+DEC+') or event.endswith('+INC+'):
+                self.update_sliders(event, values)
+            elif event == IMAGE_SLIDER_KEY:
+                self.image_slider.set_focus(True)
+                self.current_focus_slider = self.image_slider
+                self.should_redraw_processed = True
+            elif event == SCALE_SLIDER_KEY:
+                self.scale_slider.set_focus(True)
+                self.current_focus_slider = self.scale_slider
+                self.should_redraw_roi = True
+            elif event == MASK_RADIO_KEY or event == PARTICLE_RADIO_KEY or event == BACKGROUND_RADIO_KEY:
+                self.radio_option = event
+                self.should_redraw_processed = True
 
-            self.redraw(redraw_original=redraw_original, redraw_roi=redraw_roi, redraw_processed=redraw_processed)
+            self.redraw()
 
-    def redraw(self, redraw_original=True, redraw_roi=True, redraw_processed=True):
-        if redraw_original:
+    def redraw(self):
+        if self.should_redraw_original:
             self.redraw_original()
-        if redraw_roi:
+        if self.should_redraw_roi:
             self.redraw_roi()
-        if redraw_processed:
+        if self.should_redraw_processed:
             self.redraw_processed()
 
     def redraw_original(self):
@@ -214,10 +232,9 @@ class Application:
         if self.region_of_interest_id:
             self.orig_graph.delete_figure(self.region_of_interest_id)
 
-        if self.dragging:
-            if None not in (self.start_point, self.end_point):
-                self.prior_rect_id = self.orig_graph.draw_rectangle(
-                    self.start_point, self.end_point, line_color='red')
+        if None not in (self.start_point, self.end_point):
+            self.prior_rect_id = self.orig_graph.draw_rectangle(
+                self.start_point, self.end_point, line_color='red')
         elif self.region_of_interest is not None:
             self.region_of_interest_id = self.orig_graph.draw_image(data=self.region_of_interest.img_bytes,
                                                                     location=self.region_of_interest.graph_location)
@@ -238,12 +255,14 @@ class Application:
 
             self.processed_graph.draw_image(data=bytes_to_draw, location=location)
 
-    def create_region_of_interest(self):
-        # upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
-        sx, sy = self.start_point
-        ex, ey = self.end_point
-        upper_left = (min(sx, ex), max(sy, ey))
-        lower_right = (max(sx, ex), min(sy, ey))
+    def create_region_of_interest(self, thresh=None):
+        if self.prior_rect_id is None:
+            return
+        upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
+        # sx, sy = self.start_point
+        # ex, ey = self.end_point
+        # upper_left = (min(sx, ex), max(sy, ey))
+        # lower_right = (max(sx, ex), min(sy, ey))
 
         upper_left_image = graph_coords_to_image_coords(
             upper_left, img=self.orig_image, graph=self.orig_graph)
@@ -256,18 +275,21 @@ class Application:
         x2 = int(lower_right_image[0])
         roi = self.orig_image[y1:y2, x1:x2]
         if 0 not in roi.shape:
-            annotated_roi = self.extract_scale(roi)
+            annotated_roi = self.extract_scale(roi, thresh)
             resize = cv2.resize(annotated_roi, (lower_right[0] - upper_left[0], upper_left[1] - lower_right[1]),
                                 interpolation=cv2.INTER_AREA)
             img_bytes = cv2.imencode('.png', resize)[1].tobytes()
             self.region_of_interest = RegionOfInterest(img_bytes, upper_left, (y1, y2), (x1, x2))
 
-    def extract_scale(self, roi):
+    def extract_scale(self, roi, thresh):
         # Blur image
         roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(roi_gray, (5, 5), 0)
-        thr_val, thr_img = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        self.scale_slider.update(value=thr_val)
+        if thresh:
+            _, thr_img = cv2.threshold(blur, thresh, 255, cv2.THRESH_BINARY_INV)
+        else:
+            thr_val, thr_img = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            self.scale_slider.update(value=thr_val)
 
         # get connected components
         num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(
@@ -309,7 +331,7 @@ class Application:
         dst = cv2.add(img1_bg, img2_fg)
         return dst
 
-    def create_processed_particle(self):
+    def create_processed_particle(self, thresh=None):
         if self.region_of_interest is None:
             return
         # remove the scale area
@@ -320,10 +342,12 @@ class Application:
         # apply thresholding
         particle_gray = cv2.cvtColor(particle, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(particle_gray, (5, 5), 0)
-        particle_thr_val, particle_thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-        # update the ui to reflect the automatically chosen threshold
-        self.image_slider.update(value=particle_thr_val)
+        if thresh:
+            _, particle_thresh = cv2.threshold(blur, thresh, 255, cv2.THRESH_BINARY_INV)
+        else:
+            particle_thr_val, particle_thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+            # update the ui to reflect the automatically chosen threshold
+            self.image_slider.update(value=particle_thr_val)
 
         # remove halo of region of interest selection rectangle
         particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
@@ -358,6 +382,35 @@ class Application:
             return float(input_val)
         except ValueError:
             return None
+
+    def update_sliders(self, event, values):
+        if event.endswith('+DEC+'):
+            if event.startswith(SCALE_SLIDER_KEY):
+                self.scale_slider.update(
+                    value=max(0, values[SCALE_SLIDER_KEY] - 1))
+                self.current_focus_slider = self.scale_slider
+                self.create_region_of_interest(max(0, values[SCALE_SLIDER_KEY] - 1))
+                self.should_redraw_roi = True
+            elif event.startswith(IMAGE_SLIDER_KEY):
+                self.image_slider.update(
+                    value=max(0, values[IMAGE_SLIDER_KEY] - 1))
+                self.current_focus_slider = self.image_slider
+                self.should_redraw_processed = True
+                self.create_processed_particle(max(0, values[IMAGE_SLIDER_KEY] - 1))
+
+        elif event.endswith('+INC+'):
+            if event.startswith(SCALE_SLIDER_KEY):
+                self.scale_slider.update(
+                    value=min(255, values[SCALE_SLIDER_KEY] + 1))
+                self.current_focus_slider = self.scale_slider
+                self.should_redraw_roi = True
+                self.create_region_of_interest(min(255, values[SCALE_SLIDER_KEY] + 1))
+            elif event.startswith(IMAGE_SLIDER_KEY):
+                self.image_slider.update(
+                    value=min(255, values[IMAGE_SLIDER_KEY] + 1))
+                self.current_focus_slider = self.image_slider
+                self.should_redraw_processed = True
+                self.create_processed_particle(min(255, values[IMAGE_SLIDER_KEY] + 1))
 
 
 # start the app
