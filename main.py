@@ -425,4 +425,4 @@ class Application:
 
 # start the app
 print("[INFO] starting...")
-pba = Application()
+app = Application()
