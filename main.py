@@ -57,40 +57,41 @@ def create_processed_image():
                     border_width=1)
 
 
-left_col = sg.Column([[sg.Text('1. Please select a photo:'),
-                       sg.InputText(size=(50, 1), key=FILENAME_KEY,
-                                    enable_events=True, readonly=True),
-                       sg.FileBrowse()],
-                      [sg.Text(
-                          '2. Please highlight the text and scale with your mouse.')],
-                      [sg.Column([[sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
-                                                                         orientation='horizontal',
-                                                                         key=SCALE_SLIDER_KEY,
-                                                                         enable_events=True)],
-                                  [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
-                                                                         orientation='horizontal',
-                                                                         key=IMAGE_SLIDER_KEY,
-                                                                         enable_events=True)],
-                                  ]), sg.Button('Automatic', key=AUTOMATIC_KEY)],
-                      [create_original_image()],
-                      [sg.Text('3. If the scale is '),
-                       sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=SCALE_SIZE_KEY),
-                       sg.Text('mm, then the particle is: '), sg.InputText(default_text='',
-                                                                           key=PARTICLE_SIZE_KEY, readonly=True)],
-                      [sg.Text('4. Choose another image.')]])
-
-right_col = sg.Column(
-    [[sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True, key=MASK_RADIO_KEY)],
-     [sg.Radio(text='Particle', group_id='overlay', enable_events=True,
-               key=PARTICLE_RADIO_KEY)],
-     [sg.Radio(text='Background', group_id='overlay', enable_events=True, key=BACKGROUND_RADIO_KEY)],
-     [create_processed_image()]],
-)
-
-
 def get_layout():
     return [
-        [sg.Column([[left_col, sg.VerticalSeparator(), right_col]], justification='center', expand_x=True)],
+        [sg.Column([[sg.Text('1. Please select a photo:'),
+                     sg.InputText(size=(50, 1), key=FILENAME_KEY,
+                                  enable_events=True, readonly=True),
+                     sg.FileBrowse()],
+                    [sg.Text(
+                        '2. Please highlight the text and scale with your mouse.')],
+                    [sg.Column([[sg.Column([[sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
+                                                                                   orientation='horizontal',
+                                                                                   key=SCALE_SLIDER_KEY,
+                                                                                   enable_events=True)],
+                                            [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
+                                                                                   orientation='horizontal',
+                                                                                   key=IMAGE_SLIDER_KEY,
+                                                                                   enable_events=True)]]),
+                                 sg.Button('Automatic', key=AUTOMATIC_KEY, font=('Helvetica', 30)), ],
+
+                                [create_original_image()],
+                                ], background_color='#0000bb', element_justification='center',
+                               vertical_alignment='bottom'),
+                     sg.Column(
+                         [[sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True,
+                                    key=MASK_RADIO_KEY)],
+                          [sg.Radio(text='Particle', group_id='overlay', enable_events=True,
+                                    key=PARTICLE_RADIO_KEY)],
+                          [sg.Radio(text='Background', group_id='overlay', enable_events=True,
+                                    key=BACKGROUND_RADIO_KEY)], [create_processed_image()]],
+                         background_color='#aa0000', element_justification='left', vertical_alignment='bottom'
+                     )],
+                    [sg.Text('3. If the scale is '),
+                     sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=SCALE_SIZE_KEY),
+                     sg.Text('mm, then the particle is: '), sg.InputText(default_text='',
+                                                                         key=PARTICLE_SIZE_KEY, readonly=True)],
+                    [sg.Text('4. Choose another image.')]])],
     ]
 
 
@@ -143,7 +144,7 @@ class Application:
     def __init__(self):
         sg.theme('BluePurple')
 
-        window = sg.Window('Particle Sizing', get_layout())
+        window = sg.Window('Particle Sizing', get_layout(), resizable=True)
         self.orig_graph = window[ORIGINAL_KEY]
         self.processed_graph = window[PROCESSED_KEY]
         self.particle_size = window[PARTICLE_SIZE_KEY]
