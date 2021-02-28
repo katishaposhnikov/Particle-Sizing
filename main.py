@@ -251,8 +251,8 @@ class Application:
 
         if self.processed_image is not None and self.orig_image is not None:
             if self.radio_option == BACKGROUND_RADIO_KEY:
-                bytes_to_draw, location = scale_img_to_graph(cv2.bitwise_and(
-                    self.orig_image, self.orig_image, mask=cv2.bitwise_not(self.processed_image)), self.processed_graph)
+                bytes_to_draw, location = scale_img_to_graph(cv2.add(
+                    self.orig_image, cv2.cvtColor(self.processed_image, cv2.COLOR_GRAY2BGR)), self.processed_graph)
             elif self.radio_option == PARTICLE_RADIO_KEY:
                 bytes_to_draw, location = scale_img_to_graph(cv2.bitwise_and(
                     self.orig_image, self.orig_image, mask=self.processed_image), self.processed_graph)
