@@ -14,6 +14,7 @@ SCALE_SIZE_KEY = '-SCALE-SIZE-KEY-'
 MASK_RADIO_KEY = '-MASK-RADIO-KEY-'
 PARTICLE_RADIO_KEY = '-PARTICLE-RADIO-KEY-'
 BACKGROUND_RADIO_KEY = 'BACKGROUND-RADIO-KEY-'
+AUTOMATIC_KEY = '-AUTOMATIC-KEY-'
 GRAPH_SIZE = (400, 300)
 
 
@@ -56,30 +57,41 @@ def create_processed_image():
                     border_width=1)
 
 
+left_col = sg.Column([[sg.Text('1. Please select a photo:'),
+                       sg.InputText(size=(50, 1), key=FILENAME_KEY,
+                                    enable_events=True, readonly=True),
+                       sg.FileBrowse()],
+                      [sg.Text(
+                          '2. Please highlight the text and scale with your mouse.')],
+                      [sg.Column([[sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
+                                                                         orientation='horizontal',
+                                                                         key=SCALE_SLIDER_KEY,
+                                                                         enable_events=True)],
+                                  [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
+                                                                         orientation='horizontal',
+                                                                         key=IMAGE_SLIDER_KEY,
+                                                                         enable_events=True)],
+                                  ]), sg.Button('Automatic', key=AUTOMATIC_KEY)],
+                      [create_original_image()],
+                      [sg.Text('3. If the scale is '),
+                       sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=SCALE_SIZE_KEY),
+                       sg.Text('mm, then the particle is: '), sg.InputText(default_text='',
+                                                                           key=PARTICLE_SIZE_KEY, readonly=True)],
+                      [sg.Text('4. Choose another image.')]])
+
+right_col = sg.Column(
+    [[sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True, key=MASK_RADIO_KEY)],
+     [sg.Radio(text='Particle', group_id='overlay', enable_events=True,
+               key=PARTICLE_RADIO_KEY)],
+     [sg.Radio(text='Background', group_id='overlay', enable_events=True, key=BACKGROUND_RADIO_KEY)],
+     [create_processed_image()]],
+)
+
+
 def get_layout():
-    return [[sg.Text('1. Please select a photo:'),
-             sg.InputText(size=(50, 1), key=FILENAME_KEY,
-                          enable_events=True, readonly=True),
-             sg.FileBrowse()],
-            [sg.Text(
-                '2. Please highlight the text and scale with your mouse.')],
-            [sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
-                                                   orientation='horizontal', key=SCALE_SLIDER_KEY,
-                                                   enable_events=True)],
-            [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
-                                                   orientation='horizontal', key=IMAGE_SLIDER_KEY,
-                                                   enable_events=True),
-             sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True, key=MASK_RADIO_KEY),
-             sg.Radio(text='Particle', group_id='overlay', enable_events=True,
-                      key=PARTICLE_RADIO_KEY),
-             sg.Radio(text='Background', group_id='overlay', enable_events=True, key=BACKGROUND_RADIO_KEY)],
-            [create_original_image(), sg.VSep(), create_processed_image()],
-            [sg.Text('3. If the scale is '),
-             sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=SCALE_SIZE_KEY),
-             sg.Text('mm, then the particle is: '), sg.InputText(default_text='',
-                                                                 key=PARTICLE_SIZE_KEY, readonly=True)],
-            [sg.Text('4. Choose another image.')]
-            ]
+    return [
+        [sg.Column([[left_col, sg.VerticalSeparator(), right_col]], justification='center', expand_x=True)],
+    ]
 
 
 def get_scale_data(img, graph):
@@ -208,11 +220,16 @@ class Application:
                 self.scale_slider.set_focus(True)
                 self.current_focus_slider = self.scale_slider
                 self.create_region_of_interest(thresh=values[SCALE_SLIDER_KEY])
-                self.create_processed_particle()
+                self.create_processed_particle(thresh=values[IMAGE_SLIDER_KEY])
                 self.should_redraw_roi = True
                 self.should_redraw_processed = True
             elif event == MASK_RADIO_KEY or event == PARTICLE_RADIO_KEY or event == BACKGROUND_RADIO_KEY:
                 self.radio_option = event
+                self.should_redraw_processed = True
+            elif event == AUTOMATIC_KEY:
+                self.create_region_of_interest()
+                self.create_processed_particle()
+                self.should_redraw_roi = True
                 self.should_redraw_processed = True
 
             self.redraw()
@@ -263,11 +280,14 @@ class Application:
             self.processed_graph.draw_image(data=bytes_to_draw, location=location)
 
     def create_region_of_interest(self, thresh=None):
-        if self.prior_rect_id is None:
+        if self.prior_rect_id is not None:
+            upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
+        elif self.region_of_interest is not None:
             upper_left = self.region_of_interest.graph_upper_left
             lower_right = self.region_of_interest.graph_lower_right
         else:
-            upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
+            return
+
         # sx, sy = self.start_point
         # ex, ey = self.end_point
         # upper_left = (min(sx, ex), max(sy, ey))
