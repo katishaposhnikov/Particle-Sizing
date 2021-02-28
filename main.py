@@ -14,7 +14,6 @@ SCALE_SIZE_KEY = '-SCALE-SIZE-KEY-'
 MASK_RADIO_KEY = '-MASK-RADIO-KEY-'
 PARTICLE_RADIO_KEY = '-PARTICLE-RADIO-KEY-'
 BACKGROUND_RADIO_KEY = 'BACKGROUND-RADIO-KEY-'
-DONE_KEY = '-DONE-'
 GRAPH_SIZE = (400, 300)
 
 
@@ -22,14 +21,18 @@ GRAPH_SIZE = (400, 300)
 
 
 class RegionOfInterest:
-    def __init__(self, img_bytes=None, graph_location=None, y_bounds=None, x_bounds=None):
+    def __init__(self, img_bytes=None, graph_upper_left=None, graph_lower_right=None, y_bounds=None, x_bounds=None):
         # value returned by cv2.imencode('.png', resize)[1].tobytes()
         # ready to be accepted by grapg.draw_image
         self.img_bytes = img_bytes
 
         # (x,y) location of the top-left corner of the image for use
         # with PySimpleGUI graph elements
-        self.graph_location = graph_location
+        self.graph_upper_left = graph_upper_left
+
+        # (x,y) location of the bottom-right corner of the image for use
+        # with PySimpleGUI graph elements
+        self.graph_lower_right = graph_lower_right
 
         # the 'row' or 'y' bounds from the numpy array that is the original image
         self.y_bounds = y_bounds
@@ -59,8 +62,7 @@ def get_layout():
                           enable_events=True, readonly=True),
              sg.FileBrowse()],
             [sg.Text(
-                '2. Please highlight the text and scale with your mouse.\n   Adjust the threshold, then press done.'),
-                sg.Button('Done', key=DONE_KEY)],
+                '2. Please highlight the text and scale with your mouse.')],
             [sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
                                                    orientation='horizontal', key=SCALE_SLIDER_KEY,
                                                    enable_events=True)],
@@ -138,8 +140,8 @@ class Application:
         self.scale_size_input = window[SCALE_SIZE_KEY]
         self.current_focus_slider = None
 
-        self.orig_image = np.zeros((1, 1, 4), np.uint8)
-        self.processed_image = np.zeros((1, 1, 4), np.uint8)
+        self.orig_image = None  # np.zeros((1, 1, 4), np.uint8)
+        self.processed_image = None  # np.zeros((1, 1, 4), np.uint8)
         self.region_of_interest = None
         self.region_of_interest_id = None
         self.prior_rect_id = None
@@ -200,11 +202,15 @@ class Application:
             elif event == IMAGE_SLIDER_KEY:
                 self.image_slider.set_focus(True)
                 self.current_focus_slider = self.image_slider
+                self.create_processed_particle(thresh=values[IMAGE_SLIDER_KEY])
                 self.should_redraw_processed = True
             elif event == SCALE_SLIDER_KEY:
                 self.scale_slider.set_focus(True)
                 self.current_focus_slider = self.scale_slider
+                self.create_region_of_interest(thresh=values[SCALE_SLIDER_KEY])
+                self.create_processed_particle()
                 self.should_redraw_roi = True
+                self.should_redraw_processed = True
             elif event == MASK_RADIO_KEY or event == PARTICLE_RADIO_KEY or event == BACKGROUND_RADIO_KEY:
                 self.radio_option = event
                 self.should_redraw_processed = True
@@ -229,6 +235,7 @@ class Application:
     def redraw_roi(self):
         if self.prior_rect_id:
             self.orig_graph.delete_figure(self.prior_rect_id)
+            self.prior_rect_id = None
         if self.region_of_interest_id:
             self.orig_graph.delete_figure(self.region_of_interest_id)
 
@@ -237,12 +244,12 @@ class Application:
                 self.start_point, self.end_point, line_color='red')
         elif self.region_of_interest is not None:
             self.region_of_interest_id = self.orig_graph.draw_image(data=self.region_of_interest.img_bytes,
-                                                                    location=self.region_of_interest.graph_location)
+                                                                    location=self.region_of_interest.graph_upper_left)
 
     def redraw_processed(self):
         self.processed_graph.erase()
 
-        if self.processed_image is not None:
+        if self.processed_image is not None and self.orig_image is not None:
             if self.radio_option == BACKGROUND_RADIO_KEY:
                 bytes_to_draw, location = scale_img_to_graph(cv2.bitwise_and(
                     self.orig_image, self.orig_image, mask=cv2.bitwise_not(self.processed_image)), self.processed_graph)
@@ -257,8 +264,10 @@ class Application:
 
     def create_region_of_interest(self, thresh=None):
         if self.prior_rect_id is None:
-            return
-        upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
+            upper_left = self.region_of_interest.graph_upper_left
+            lower_right = self.region_of_interest.graph_lower_right
+        else:
+            upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
         # sx, sy = self.start_point
         # ex, ey = self.end_point
         # upper_left = (min(sx, ex), max(sy, ey))
@@ -279,7 +288,8 @@ class Application:
             resize = cv2.resize(annotated_roi, (lower_right[0] - upper_left[0], upper_left[1] - lower_right[1]),
                                 interpolation=cv2.INTER_AREA)
             img_bytes = cv2.imencode('.png', resize)[1].tobytes()
-            self.region_of_interest = RegionOfInterest(img_bytes, upper_left, (y1, y2), (x1, x2))
+            self.region_of_interest = RegionOfInterest(img_bytes, upper_left, lower_right, (y1, y2), (x1, x2))
+            return True
 
     def extract_scale(self, roi, thresh):
         # Blur image
