@@ -76,7 +76,7 @@ def get_layout():
                                  sg.Button('Automatic', key=AUTOMATIC_KEY, font=('Helvetica', 30)), ],
 
                                 [create_original_image()],
-                                ], background_color='#0000bb', element_justification='center',
+                                ], element_justification='center',
                                vertical_alignment='bottom'),
                      sg.Column(
                          [[sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True,
@@ -85,7 +85,7 @@ def get_layout():
                                     key=PARTICLE_RADIO_KEY)],
                           [sg.Radio(text='Background', group_id='overlay', enable_events=True,
                                     key=BACKGROUND_RADIO_KEY)], [create_processed_image()]],
-                         background_color='#aa0000', element_justification='left', vertical_alignment='bottom'
+                         element_justification='left', vertical_alignment='bottom'
                      )],
                     [sg.Text('3. If the scale is '),
                      sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=SCALE_SIZE_KEY),
@@ -182,6 +182,8 @@ class Application:
         self.image_slider.bind('Left', '+DEC+')
         self.image_slider.bind('Right', '+INC+')
 
+        self.scale_size_input_original_bg_color = self.scale_size_input.BackgroundColor
+
         while True:  # Event Loop
             self.should_redraw_original = self.should_redraw_roi = self.should_redraw_processed = False
             event, values = window.read()
@@ -232,6 +234,8 @@ class Application:
                 self.create_processed_particle()
                 self.should_redraw_roi = True
                 self.should_redraw_processed = True
+            elif event == SCALE_SIZE_KEY:
+                self.update_particle_size()
 
             self.redraw()
 
@@ -383,24 +387,10 @@ class Application:
         # remove halo of region of interest selection rectangle
         particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
 
-        # calculate real-life size of pixel
-        scale_mm = self.get_scale_mm()
-        if scale_mm is None:
-            self.processed_graph.draw_text('Please specify a valid number for scale size in millimeters.',
-                                           location=(10, self.processed_graph.get_size()[1] / 2))
-            return
-        self.pixel_size_in_microns = (scale_mm * 1000) / self.scale_size_pixels
-
         # calculate number of pixels
-        num_particle_pixels = cv2.countNonZero(particle_thresh)
+        self.num_particle_pixels = cv2.countNonZero(particle_thresh)
 
-        # calculate area of particle
-        particle_area = (self.pixel_size_in_microns * self.pixel_size_in_microns *
-                         num_particle_pixels) / 1000000
-        particle_area = round(particle_area, 4)
-
-        # update size ui
-        self.particle_size.update(value=f'{particle_area} mm2')
+        self.update_particle_size()
 
         # create the particle mask
         self.processed_image = particle_thresh
@@ -442,6 +432,27 @@ class Application:
                 self.current_focus_slider = self.image_slider
                 self.should_redraw_processed = True
                 self.create_processed_particle(min(255, values[IMAGE_SLIDER_KEY] + 1))
+
+    def update_particle_size(self):
+        # calculate real-life size of pixel
+        scale_mm = self.get_scale_mm()
+        if scale_mm is None:
+            self.scale_size_input.update(background_color='#FF5252')
+            return
+        else:
+            self.scale_size_input.update(background_color=self.scale_size_input_original_bg_color)
+        if self.scale_size_pixels is None or self.num_particle_pixels is None:
+            # we haven't uploaded a picture yet so don't do anything
+            return
+        pixel_size_in_microns = (scale_mm * 1000) / self.scale_size_pixels
+
+        # calculate area of particle
+        particle_area = (pixel_size_in_microns * pixel_size_in_microns *
+                         self.num_particle_pixels) / 1000000
+        particle_area = round(particle_area, 4)
+
+        # update size ui
+        self.particle_size.update(value=f'{particle_area} mm2')
 
 
 # start the app
