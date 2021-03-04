@@ -22,18 +22,10 @@ GRAPH_SIZE = (400, 300)
 
 
 class RegionOfInterest:
-    def __init__(self, img_bytes=None, graph_upper_left=None, graph_lower_right=None, y_bounds=None, x_bounds=None):
-        # value returned by cv2.imencode('.png', resize)[1].tobytes()
-        # ready to be accepted by grapg.draw_image
-        self.img_bytes = img_bytes
-
-        # (x,y) location of the top-left corner of the image for use
-        # with PySimpleGUI graph elements
-        self.graph_upper_left = graph_upper_left
-
-        # (x,y) location of the bottom-right corner of the image for use
-        # with PySimpleGUI graph elements
-        self.graph_lower_right = graph_lower_right
+    def __init__(self, imgbytes=None, y_bounds=None, x_bounds=None):
+        # the raw image bytes returned by cv2.imencode('.png', resize)[1].tobytes()
+        # ready to be accepted by graph.draw_image
+        self.imgbytes = imgbytes
 
         # the 'row' or 'y' bounds from the numpy array that is the original image
         self.y_bounds = y_bounds
@@ -44,16 +36,19 @@ class RegionOfInterest:
         # together cv2.imread('image.png')[y_bounds[0]:y_bounds[1],x_bounds[0]:x_bounds[1]]
         # gives the region of interest
 
+    def top_left(self):
+        return self.x_bounds[0], self.y_bounds[0]
+
 
 def create_original_image():
-    return sg.Graph(key=ORIGINAL_KEY, canvas_size=GRAPH_SIZE, graph_bottom_left=(0, 0),
-                    graph_top_right=GRAPH_SIZE,
+    return sg.Graph(key=ORIGINAL_KEY, canvas_size=GRAPH_SIZE, graph_bottom_left=(0, GRAPH_SIZE[1]),
+                    graph_top_right=(GRAPH_SIZE[0], 0),
                     border_width=1, change_submits=True, background_color='lightblue', drag_submits=True)
 
 
 def create_processed_image():
-    return sg.Graph(key=PROCESSED_KEY, canvas_size=GRAPH_SIZE, graph_bottom_left=(0, 0),
-                    graph_top_right=GRAPH_SIZE, background_color='lightblue',
+    return sg.Graph(key=PROCESSED_KEY, canvas_size=GRAPH_SIZE, graph_bottom_left=(0, GRAPH_SIZE[1]),
+                    graph_top_right=(GRAPH_SIZE[0], 0), background_color='lightblue',
                     border_width=1)
 
 
@@ -95,51 +90,6 @@ def get_layout():
     ]
 
 
-def get_scale_data(img, graph):
-    old_height, old_width = img.shape[0], img.shape[1]
-    graph_width, graph_height = graph.get_size()
-    height_ratio = graph_height / old_height
-    width_ratio = graph_width / old_width
-    scale = min(height_ratio, width_ratio)
-
-    new_height = int(old_height * scale)
-    new_width = int(old_width * scale)
-
-    x_offset = int((graph_width - new_width) / 2)
-    y_offset = int((graph_height - new_height) / 2)
-
-    return scale, x_offset, y_offset
-
-
-def graph_coords_to_image_coords(xy, img, graph):
-    scale, x_offset, y_offset = get_scale_data(img, graph)
-    nx = (xy[0] - x_offset) / scale
-    ny = (xy[1] - y_offset) / scale
-    return nx, ny
-
-
-def img_coords_to_graph_coords(xy, img, graph):
-    scale, x_offset, y_offset = get_scale_data(img, graph)
-    nx = xy[0] * scale + x_offset
-    ny = xy[1] * scale + y_offset
-    return nx, ny
-
-
-def scale_img_to_graph(img, graph):
-    scale, x_offset, y_offset = get_scale_data(img, graph)
-    old_height, old_width = img.shape[0], img.shape[1]
-
-    new_height = int(old_height * scale)
-    new_width = int(old_width * scale)
-
-    resize = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-    img_bytes = cv2.imencode('.png', resize)[1].tobytes()
-
-    location = (x_offset, graph.get_size()[1] - y_offset)
-
-    return img_bytes, location
-
-
 class Application:
     def __init__(self):
         sg.theme('BluePurple')
@@ -156,6 +106,7 @@ class Application:
         self.orig_image = None  # np.zeros((1, 1, 4), np.uint8)
         self.processed_image = None  # np.zeros((1, 1, 4), np.uint8)
         self.region_of_interest = None
+        self.graph_scale_factor = None
         self.region_of_interest_id = None
         self.prior_rect_id = None
         self.scale_size_pixels = None
@@ -169,6 +120,7 @@ class Application:
         self.pixel_size_in_microns = None
         self.scale_size_mm = None
         self.scale_size_pixels = None
+        self.num_particle_pixels = None
 
         self.should_redraw_original = False
         self.should_redraw_roi = False
@@ -193,6 +145,10 @@ class Application:
                 if values[FILENAME_KEY] is None or len(values[FILENAME_KEY]) < 1:
                     continue
                 self.orig_image = cv2.imread(values[FILENAME_KEY], cv2.IMREAD_COLOR)
+                self.orig_graph.change_coordinates((0, self.orig_image.shape[0]), (self.orig_image.shape[1], 0))
+                self.processed_graph.change_coordinates((0, self.orig_image.shape[1]), (self.orig_image.shape[0], 0))
+                self.graph_scale_factor = min(GRAPH_SIZE[1] / self.orig_image.shape[0],
+                                              GRAPH_SIZE[0] / self.orig_image.shape[1])
                 self.region_of_interest = None
                 self.should_redraw_original = True
             elif event == ORIGINAL_KEY:
@@ -251,8 +207,10 @@ class Application:
         self.orig_graph.erase()
 
         if self.orig_image is not None:
-            img_bytes, location = scale_img_to_graph(self.orig_image, self.orig_graph)
-            self.orig_graph.draw_image(data=img_bytes, location=location)
+            img_bytes = cv2.imencode('.png', cv2.resize(self.orig_image, (
+                int(self.orig_image.shape[1] * self.graph_scale_factor),
+                int(self.orig_image.shape[0] * self.graph_scale_factor))))[1].tobytes()
+            self.orig_graph.draw_image(data=img_bytes, location=(0, 0))
 
     def redraw_roi(self):
         if self.prior_rect_id:
@@ -265,55 +223,51 @@ class Application:
             self.prior_rect_id = self.orig_graph.draw_rectangle(
                 self.start_point, self.end_point, line_color='red')
         elif self.region_of_interest is not None:
-            self.region_of_interest_id = self.orig_graph.draw_image(data=self.region_of_interest.img_bytes,
-                                                                    location=self.region_of_interest.graph_upper_left)
+            self.region_of_interest_id = self.orig_graph.draw_image(
+                data=self.region_of_interest.imgbytes,
+                location=self.region_of_interest.top_left())
 
     def redraw_processed(self):
         self.processed_graph.erase()
 
         if self.processed_image is not None and self.orig_image is not None:
             if self.radio_option == BACKGROUND_RADIO_KEY:
-                bytes_to_draw, location = scale_img_to_graph(cv2.add(
-                    self.orig_image, cv2.cvtColor(self.processed_image, cv2.COLOR_GRAY2BGR)), self.processed_graph)
+                img_to_draw = cv2.add(self.orig_image, cv2.cvtColor(self.processed_image, cv2.COLOR_GRAY2BGR))
             elif self.radio_option == PARTICLE_RADIO_KEY:
-                bytes_to_draw, location = scale_img_to_graph(cv2.bitwise_and(
-                    self.orig_image, self.orig_image, mask=self.processed_image), self.processed_graph)
+                img_to_draw = cv2.bitwise_and(self.orig_image, self.orig_image, mask=self.processed_image)
             else:
-                bytes_to_draw, location = scale_img_to_graph(
-                    self.processed_image, self.processed_graph)
+                img_to_draw = self.processed_image
 
-            self.processed_graph.draw_image(data=bytes_to_draw, location=location)
+            bytes_to_draw = cv2.imencode('.png', cv2.resize(img_to_draw, (
+                int(self.processed_image.shape[1] * self.graph_scale_factor),
+                int(self.processed_image.shape[0] * self.graph_scale_factor)),
+                                                            interpolation=cv2.INTER_AREA))[1].tobytes()
+            self.processed_graph.draw_image(data=bytes_to_draw, location=(0, 0))
 
     def create_region_of_interest(self, thresh=None):
         if self.prior_rect_id is not None:
-            upper_left, lower_right = self.orig_graph.get_bounding_box(self.prior_rect_id)
+            upper_left = min(self.start_point[0], self.end_point[0]), min(self.start_point[1], self.end_point[1])
+            lower_right = max(self.start_point[0], self.end_point[0]), max(self.start_point[1], self.end_point[1])
+            ys = (upper_left[1], lower_right[1])
+            xs = (upper_left[0], lower_right[0])
         elif self.region_of_interest is not None:
-            upper_left = self.region_of_interest.graph_upper_left
-            lower_right = self.region_of_interest.graph_lower_right
+            ys = self.region_of_interest.y_bounds
+            xs = self.region_of_interest.x_bounds
         else:
             return
 
-        # sx, sy = self.start_point
-        # ex, ey = self.end_point
-        # upper_left = (min(sx, ex), max(sy, ey))
-        # lower_right = (max(sx, ex), min(sy, ey))
-
-        upper_left_image = graph_coords_to_image_coords(
-            upper_left, img=self.orig_image, graph=self.orig_graph)
-        lower_right_image = graph_coords_to_image_coords(
-            lower_right, img=self.orig_image, graph=self.orig_graph)
-
-        y1 = int(self.orig_image.shape[0] - upper_left_image[1])
-        y2 = int(self.orig_image.shape[0] - lower_right_image[1])
-        x1 = int(upper_left_image[0])
-        x2 = int(lower_right_image[0])
-        roi = self.orig_image[y1:y2, x1:x2]
+        roi = self.orig_image[ys[0]:ys[1], xs[0]:xs[1]]
         if 0 not in roi.shape:
             annotated_roi = self.extract_scale(roi, thresh)
-            resize = cv2.resize(annotated_roi, (lower_right[0] - upper_left[0], upper_left[1] - lower_right[1]),
-                                interpolation=cv2.INTER_AREA)
-            img_bytes = cv2.imencode('.png', resize)[1].tobytes()
-            self.region_of_interest = RegionOfInterest(img_bytes, upper_left, lower_right, (y1, y2), (x1, x2))
+            self.region_of_interest = RegionOfInterest(
+                cv2.imencode('.png',
+                             cv2.resize(annotated_roi,
+                                        (int(annotated_roi.shape[1] * self.graph_scale_factor),
+                                         int(annotated_roi.shape[0] * self.graph_scale_factor),
+                                         ),
+                                        ),
+                             )[1].tobytes()
+                , ys, xs)
             return True
 
     def extract_scale(self, roi, thresh):
@@ -329,6 +283,11 @@ class Application:
         # get connected components
         num_components, labels, stats, centroids = cv2.connectedComponentsWithStats(
             thr_img, connectivity=4)
+
+        if num_components <= 1:
+            # we couldn't find anything to extract (there is just one giant blob) so return and wait for
+            # the user to set better image parameters
+            return roi
 
         # get the lengths and width of the connected components (0 is background so exclude it)
         lengths_and_widths = np.stack(
@@ -383,9 +342,6 @@ class Application:
             particle_thr_val, particle_thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
             # update the ui to reflect the automatically chosen threshold
             self.image_slider.update(value=particle_thr_val)
-
-        # remove halo of region of interest selection rectangle
-        particle_thresh[ys[0] - 2:ys[1] + 2, xs[0] - 2:xs[1] + 2] = 0
 
         # calculate number of pixels
         self.num_particle_pixels = cv2.countNonZero(particle_thresh)
