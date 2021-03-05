@@ -88,20 +88,16 @@ class Application:
         self.scale_size_input_original_bg_color = self.scale_size_input.input.BackgroundColor
 
         while True:  # Event Loop
-            self.should_redraw_original = self.should_redraw_roi = self.should_redraw_processed = False
             event, values = window.read()
             if event == sg.WIN_CLOSED or event == 'Exit':
                 break
             elif event == FILENAME_KEY:
                 if values[FILENAME_KEY] is None or len(values[FILENAME_KEY]) < 1:
                     continue
-                self.orig_image = cv2.imread(values[FILENAME_KEY], cv2.IMREAD_COLOR)
-                self.orig_graph.change_coordinates((0, self.orig_image.shape[0]), (self.orig_image.shape[1], 0))
-                self.processed_graph.change_coordinates((0, self.orig_image.shape[1]), (self.orig_image.shape[0], 0))
-                self.graph_scale_factor = min(GRAPH_SIZE[1] / self.orig_image.shape[0],
-                                              GRAPH_SIZE[0] / self.orig_image.shape[1])
+                self.particle.load_image(values[FILENAME_KEY])
+                self.orig_graph.erase()
+                self.orig_graph.draw_particle(self.particle)
                 self.region_of_interest = None
-                self.should_redraw_original = True
             elif event == ORIGINAL_KEY:
                 x, y = values[ORIGINAL_KEY]
                 if not self.dragging:
@@ -144,8 +140,6 @@ class Application:
             elif event == SCALE_SIZE_KEY:
                 self.update_particle_size()
 
-            self.redraw()
-
     def get_layout(self):
         return [
             [sg.Column([[sg.Text('1. Please select a photo:'),
@@ -173,23 +167,6 @@ class Application:
                         self.scale_size_input.layout(),
                         [sg.Text('4. Choose another image.')]])],
         ]
-
-    def redraw(self):
-        if self.should_redraw_original:
-            self.redraw_original()
-        if self.should_redraw_roi:
-            self.redraw_roi()
-        if self.should_redraw_processed:
-            self.redraw_processed()
-
-    def redraw_original(self):
-        self.orig_graph.erase()
-
-        if self.orig_image is not None:
-            img_bytes = cv2.imencode('.png', cv2.resize(self.orig_image, (
-                int(self.orig_image.shape[1] * self.graph_scale_factor),
-                int(self.orig_image.shape[0] * self.graph_scale_factor))))[1].tobytes()
-            self.orig_graph.draw_image(data=img_bytes, location=(0, 0))
 
     def redraw_roi(self):
         if self.prior_rect_id:

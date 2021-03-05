@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import PySimpleGUI as sg
+import cv2
 
 
 class Graph:
@@ -25,7 +26,13 @@ class Graph:
                                self.graph.get_size()[0] / img.shape[1])
 
     def draw_particle(self, particle):
-        pass
+        self.scale_to_image(particle.img)
+        width = int(particle.img.shape[1] * self.graph_scale)
+        height = int(particle.img.shape[0] * self.graph_scale)
+        self.graph.set_size(size=(width, height))
+        resized = cv2.resize(particle.img, (width, height))
+        img_bytes = cv2.imencode('.png', resized)[1].tobytes()
+        self.graph.draw_image(data=img_bytes, location=(0, 0))
 
     def draw_roi(self, roi):
         pass
@@ -40,3 +47,6 @@ class Graph:
     def handle_mouse_up_event(self):
         self.start_point, self.end_point = None, None  # enable grabbing a new rect
         self.dragging = False
+
+    def erase(self):
+        self.graph.erase()

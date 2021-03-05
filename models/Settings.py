@@ -4,10 +4,10 @@ class Settings:
         self.scale_size_mm = None
 
         # the imaging threshold with which to process the scale. should be an int 0-255
-        self.scale_threshold
+        self.scale_threshold = None
 
         # the imgaing threshold with which to process the particle. should be an int 0-255
-        self.particle_threshold
+        self.particle_threshold = None
 
         # the radio option for how to display the processed particle
-        self.masking_option
+        self.masking_option = None
