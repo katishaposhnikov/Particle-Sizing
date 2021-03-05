@@ -18,3 +18,25 @@ class Graph:
 
     def layout(self):
         return [self.graph]
+
+    def scale_to_image(self, img):
+        self.graph.change_coordinates((0, img.shape[1]), (img.shape[0], 0))
+        self.graph_scale = min(self.graph.get_size()[1] / img.shape[0],
+                               self.graph.get_size()[0] / img.shape[1])
+
+    def draw_particle(self, particle):
+        pass
+
+    def draw_roi(self, roi):
+        pass
+
+    def handle_mouse_event(self, x, y):
+        if not self.dragging:
+            self.start_point = (x, y)
+            self.dragging = True
+        else:
+            self.end_point = (x, y)
+
+    def handle_mouse_up_event(self):
+        self.start_point, self.end_point = None, None  # enable grabbing a new rect
+        self.dragging = False

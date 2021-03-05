@@ -3,6 +3,11 @@ import cv2
 import numpy as np
 
 ################ CONSTANTS ################
+from models.Particle import Particle
+from models.Settings import Settings
+from views.Graph import Graph
+from views.ScaleSizeInput import ScaleSizeInput
+from views.Slider import Slider
 
 ORIGINAL_KEY = '-ORIGINAL-'
 PROCESSED_KEY = '-PROCESSED-'
@@ -52,89 +57,35 @@ def create_processed_image():
                     border_width=1)
 
 
-def get_layout():
-    return [
-        [sg.Column([[sg.Text('1. Please select a photo:'),
-                     sg.InputText(size=(50, 1), key=FILENAME_KEY,
-                                  enable_events=True, readonly=True),
-                     sg.FileBrowse()],
-                    [sg.Text(
-                        '2. Please highlight the text and scale with your mouse.')],
-                    [sg.Column([[sg.Column([[sg.Text('Scale Threshold'), sg.Slider(range=(0, 255), default_value=127,
-                                                                                   orientation='horizontal',
-                                                                                   key=SCALE_SLIDER_KEY,
-                                                                                   enable_events=True)],
-                                            [sg.Text('Image Threshold'), sg.Slider(range=(0, 255), default_value=127,
-                                                                                   orientation='horizontal',
-                                                                                   key=IMAGE_SLIDER_KEY,
-                                                                                   enable_events=True)]]),
-                                 sg.Button('Automatic', key=AUTOMATIC_KEY, font=('Helvetica', 30)), ],
-
-                                [create_original_image()],
-                                ], element_justification='center',
-                               vertical_alignment='bottom'),
-                     sg.Column(
-                         [[sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True,
-                                    key=MASK_RADIO_KEY)],
-                          [sg.Radio(text='Particle', group_id='overlay', enable_events=True,
-                                    key=PARTICLE_RADIO_KEY)],
-                          [sg.Radio(text='Background', group_id='overlay', enable_events=True,
-                                    key=BACKGROUND_RADIO_KEY)], [create_processed_image()]],
-                         element_justification='left', vertical_alignment='bottom'
-                     )],
-                    [sg.Text('3. If the scale is '),
-                     sg.InputText(default_text='1.00', size=(5, 1), enable_events=True, key=SCALE_SIZE_KEY),
-                     sg.Text('mm, then the particle is: '), sg.InputText(default_text='',
-                                                                         key=PARTICLE_SIZE_KEY, readonly=True)],
-                    [sg.Text('4. Choose another image.')]])],
-    ]
-
-
 class Application:
     def __init__(self):
         sg.theme('BluePurple')
 
-        window = sg.Window('Particle Sizing', get_layout(), resizable=True)
-        self.orig_graph = window[ORIGINAL_KEY]
-        self.processed_graph = window[PROCESSED_KEY]
-        self.particle_size = window[PARTICLE_SIZE_KEY]
-        self.scale_slider = window[SCALE_SLIDER_KEY]
-        self.image_slider = window[IMAGE_SLIDER_KEY]
-        self.scale_size_input = window[SCALE_SIZE_KEY]
-        self.current_focus_slider = None
+        # Views
+        self.orig_graph = Graph(key=ORIGINAL_KEY, graph_size=GRAPH_SIZE)
+        self.processed_graph = Graph(key=PROCESSED_KEY, graph_size=GRAPH_SIZE)
+        self.scale_size_input = ScaleSizeInput(scale_key=SCALE_SIZE_KEY, particle_key=PARTICLE_SIZE_KEY)
+        self.image_slider = Slider(name='Image Slider', key=IMAGE_SLIDER_KEY)
+        self.scale_slider = Slider(name='Scale Slider', key=SCALE_SLIDER_KEY)
 
-        self.orig_image = None  # np.zeros((1, 1, 4), np.uint8)
-        self.processed_image = None  # np.zeros((1, 1, 4), np.uint8)
-        self.region_of_interest = None
-        self.graph_scale_factor = None
-        self.region_of_interest_id = None
-        self.prior_rect_id = None
-        self.scale_size_pixels = None
-        self.scale_size_mm = None
+        # Models
+        self.particle = Particle()
+        self.region_of_interest = RegionOfInterest()
+        self.settings = Settings()
+
+        window = sg.Window('Particle Sizing', self.get_layout(), resizable=True)
+
         self.radio_option = MASK_RADIO_KEY
-
-        self.start_point = None
-        self.end_point = None
-        self.dragging = False
-
-        self.pixel_size_in_microns = None
-        self.scale_size_mm = None
-        self.scale_size_pixels = None
-        self.num_particle_pixels = None
-
-        self.should_redraw_original = False
-        self.should_redraw_roi = False
-        self.should_redraw_processed = False
 
         window.finalize()
 
-        self.scale_slider.bind('Left', '+DEC+')
-        self.scale_slider.bind('Right', '+INC+')
+        self.scale_slider.slider.bind('Left', '+DEC+')
+        self.scale_slider.slider.bind('Right', '+INC+')
 
-        self.image_slider.bind('Left', '+DEC+')
-        self.image_slider.bind('Right', '+INC+')
+        self.image_slider.slider.bind('Left', '+DEC+')
+        self.image_slider.slider.bind('Right', '+INC+')
 
-        self.scale_size_input_original_bg_color = self.scale_size_input.BackgroundColor
+        self.scale_size_input_original_bg_color = self.scale_size_input.input.BackgroundColor
 
         while True:  # Event Loop
             self.should_redraw_original = self.should_redraw_roi = self.should_redraw_processed = False
@@ -194,6 +145,34 @@ class Application:
                 self.update_particle_size()
 
             self.redraw()
+
+    def get_layout(self):
+        return [
+            [sg.Column([[sg.Text('1. Please select a photo:'),
+                         sg.InputText(size=(50, 1), key=FILENAME_KEY,
+                                      enable_events=True, readonly=True),
+                         sg.FileBrowse()],
+                        [sg.Text(
+                            '2. Please highlight the text and scale with your mouse.')],
+                        [sg.Column([[sg.Column([self.scale_slider.layout(),
+                                                self.image_slider.layout()]),
+                                     sg.Button('Automatic', key=AUTOMATIC_KEY, font=('Helvetica', 30)), ],
+
+                                    self.orig_graph.layout(),
+                                    ], element_justification='center',
+                                   vertical_alignment='bottom'),
+                         sg.Column(
+                             [[sg.Radio(text='Mask', group_id='overlay', enable_events=True, default=True,
+                                        key=MASK_RADIO_KEY)],
+                              [sg.Radio(text='Particle', group_id='overlay', enable_events=True,
+                                        key=PARTICLE_RADIO_KEY)],
+                              [sg.Radio(text='Background', group_id='overlay', enable_events=True,
+                                        key=BACKGROUND_RADIO_KEY)], self.processed_graph.layout()],
+                             element_justification='left', vertical_alignment='bottom'
+                         )],
+                        self.scale_size_input.layout(),
+                        [sg.Text('4. Choose another image.')]])],
+        ]
 
     def redraw(self):
         if self.should_redraw_original:
